@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import Header, HTTPException, Security, status
+from fastapi import Header, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
 from config import settings
@@ -23,6 +23,9 @@ OFFICIAL_PROVIDER_DOMAINS = {
     "openai": ["api.openai.com"],
     "anthropic": ["api.anthropic.com"],
     "gemini": ["generativelanguage.googleapis.com"],
+    "groq": ["api.groq.com"],
+    "mistral": ["api.mistral.ai"],
+    "ollama": ["localhost", "127.0.0.1"],
 }
 
 # Private and reserved IP blocks for SSRF prevention
@@ -39,16 +42,21 @@ BLOCKED_IP_NETWORKS = [
 ]
 
 async def require_admin(
+    request: Request,
     x_admin_key: Optional[str] = Security(api_key_header),
     authorization: Optional[str] = Header(None),
 ) -> bool:
     """
     Validates administrative access for mutating endpoints.
-    Accepts X-Admin-Key header, JWT Bearer token, or open access if no admin key configured.
+    Accepts X-Admin-Key header, JWT Bearer token (header or query param), or open access if no admin key configured.
     """
-    # Try JWT first (from Authorization: Bearer <jwt>)
+    token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:].strip()
+    elif request.query_params.get("token"):
+        token = request.query_params.get("token")
+
+    if token:
         try:
             from routers.auth import decode_access_token
             decode_access_token(token)
@@ -114,7 +122,16 @@ def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Option
     cleaned_url = base_url.strip().rstrip("/")
     parsed = urlparse(cleaned_url)
 
-    # 1. Scheme check: only HTTPS allowed
+    # Ollama is intended for local inference instances (HTTP or HTTPS)
+    if provider.lower() == "ollama":
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ollama requer protocolo HTTP ou HTTPS.",
+            )
+        return cleaned_url
+
+    # 1. Scheme check: only HTTPS allowed for cloud providers
     if parsed.scheme.lower() != "https":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

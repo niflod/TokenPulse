@@ -1,16 +1,31 @@
+# Git & Version Control
 .git
 .gitignore
-.dockerignore
-.venv
-venv
-env
+
+# Python & Virtual Environments
+.venv/
+venv/
+env/
+__pycache__/
 *.pyc
-__pycache__
-*.db
-*.sqlite
-*.sqlite3
-backend/data/*.db
-.env
-.env.*
-tests
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local SQLite databases & ephemeral logs
+data/*.db
+data/*.db-wal
+data/*.db-shm
 *.log
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary directories
+.scratch/
+tmp/

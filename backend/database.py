@@ -115,6 +115,12 @@ async def init_db() -> None:
                     sync_conn.execute(text(f"ALTER TABLE request_logs ADD COLUMN {col_name} {col_type}"))
                     logger.info("Migrated SQLite: added column %s to request_logs", col_name)
 
+            res_alerts = sync_conn.execute(text("PRAGMA table_info(alert_configs)"))
+            alert_cols = {row[1] for row in res_alerts.fetchall()}
+            if "webhook_url" not in alert_cols:
+                sync_conn.execute(text("ALTER TABLE alert_configs ADD COLUMN webhook_url VARCHAR(512)"))
+                logger.info("Migrated SQLite: added column webhook_url to alert_configs")
+
         if "sqlite" in settings.database_url:
             await conn.run_sync(_migrate_sqlite_columns)
 

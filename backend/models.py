@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from cryptography.fernet import Fernet
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
@@ -119,6 +120,7 @@ class AlertConfig(Base):
     # e.g. 'daily_usage_pct', 'error_rate', 'latency_ms'
     metric: Mapped[str] = mapped_column(String(64), nullable=False)
     threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    webhook_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -148,3 +150,22 @@ class User(Base):
     def verify_password(self, password: str) -> bool:
         import bcrypt
         return bcrypt.checkpw(password.encode("utf-8"), self.password_hash.encode("utf-8"))
+
+
+class ClientApiKey(Base):
+    """Virtual API key issued by TokenPulse for client applications."""
+
+    __tablename__ = "client_api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    rate_limit_rpm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=60)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

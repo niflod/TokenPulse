@@ -330,7 +330,7 @@ const App = {
       const span = document.createElement('span');
       span.style.color = 'var(--text-dim)';
       span.style.marginLeft = '6px';
-      span.textContent = `Limite: ${a.threshold}`;
+      span.textContent = `Limite: ${a.threshold}${a.webhook_url ? ' • Webhook ativo' : ''}`;
       left.appendChild(strong);
       left.appendChild(span);
 
@@ -345,6 +345,74 @@ const App = {
       item.appendChild(btn);
       listEl.appendChild(item);
     });
+
+    // Render Client Keys (Ticket 05)
+    const keysContainer = document.getElementById('client-keys-list');
+    if (keysContainer) {
+      keysContainer.textContent = '';
+      const { data: clientKeys } = await API.getClientKeys();
+      if (!clientKeys || clientKeys.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-muted text-center';
+        empty.style.padding = '16px';
+        empty.textContent = 'Nenhuma chave de cliente emitida.';
+        keysContainer.appendChild(empty);
+      } else {
+        clientKeys.forEach((k) => {
+          const item = document.createElement('div');
+          item.className = 'configured-provider-item';
+
+          const left = document.createElement('div');
+          const strong = document.createElement('strong');
+          strong.textContent = k.name;
+          const badge = document.createElement('span');
+          badge.className = k.enabled ? 'badge-tag' : 'badge-tag text-muted';
+          badge.style.marginLeft = '8px';
+          badge.textContent = k.enabled ? 'Ativa' : 'Desabilitada';
+
+          const prefixDiv = document.createElement('div');
+          prefixDiv.style.fontFamily = 'var(--font-mono)';
+          prefixDiv.style.fontSize = '12px';
+          prefixDiv.style.color = 'var(--accent)';
+          prefixDiv.style.marginTop = '2px';
+          prefixDiv.textContent = `Prefixo: ${k.key_prefix} (RPM: ${k.rate_limit_rpm || '∞'})`;
+
+          left.appendChild(strong);
+          left.appendChild(badge);
+          left.appendChild(prefixDiv);
+
+          const actions = document.createElement('div');
+          actions.className = 'flex-row gap-2';
+
+          const btnToggle = document.createElement('button');
+          btnToggle.type = 'button';
+          btnToggle.className = 'btn btn-secondary btn-sm';
+          btnToggle.textContent = k.enabled ? 'Desativar' : 'Ativar';
+          btnToggle.addEventListener('click', async () => {
+            await API.toggleClientKey(k.id);
+            this._loadSettings();
+          });
+
+          const btnDel = document.createElement('button');
+          btnDel.type = 'button';
+          btnDel.className = 'btn btn-danger btn-sm';
+          btnDel.textContent = 'Revogar';
+          btnDel.addEventListener('click', async () => {
+            if (confirm(`Deseja revogar a chave ${k.name}?`)) {
+              await API.deleteClientKey(k.id);
+              Alerts.toast(`Chave ${k.name} revogada.`, 'info');
+              this._loadSettings();
+            }
+          });
+
+          actions.appendChild(btnToggle);
+          actions.appendChild(btnDel);
+          item.appendChild(left);
+          item.appendChild(actions);
+          keysContainer.appendChild(item);
+        });
+      }
+    }
 
     if (window.lucide) lucide.createIcons();
   },
@@ -589,15 +657,40 @@ const App = {
       e.preventDefault();
       const metric = document.getElementById('input-alert-metric').value;
       const threshold = parseFloat(document.getElementById('input-alert-threshold').value);
+      const webhook = document.getElementById('input-alert-webhook')?.value?.trim() || null;
 
       await API.addAlertConfig({
         provider: 'all',
         metric: metric,
         threshold: threshold,
+        webhook_url: webhook,
       });
 
       Alerts.toast('Regra de alerta adicionada!', 'success');
       document.getElementById('input-alert-threshold').value = '';
+      if (document.getElementById('input-alert-webhook')) {
+        document.getElementById('input-alert-webhook').value = '';
+      }
+      this._loadSettings();
+    });
+
+    // Settings: Create Client API Key
+    document.getElementById('form-create-client-key')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('input-client-key-name')?.value?.trim();
+      const rpm = parseInt(document.getElementById('input-client-key-rpm')?.value, 10) || 60;
+      if (!name) return;
+
+      const res = await API.createClientKey({ name, rate_limit_rpm: rpm });
+      if (res.error) {
+        Alerts.toast(res.error.message || 'Erro ao emitir chave.', 'error');
+        return;
+      }
+
+      const fullKey = res.data.api_key;
+      prompt('COPIE SUA CHAVE VIRTUAL TOKENPULSE (Não será exibida novamente):', fullKey);
+      Alerts.toast('Chave virtual emitida com sucesso!', 'success');
+      document.getElementById('input-client-key-name').value = '';
       this._loadSettings();
     });
 
@@ -621,6 +714,54 @@ const App = {
       const val = document.getElementById('input-admin-key')?.value?.trim() || '';
       Storage.set('aum_admin_key', val);
       Alerts.toast(val ? 'Chave Administrativa salva localmente!' : 'Chave Administrativa removida.', 'success');
+    });
+
+    // Settings: Change Admin Password
+    document.getElementById('form-change-password')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const current = document.getElementById('input-current-password')?.value || '';
+      const next = document.getElementById('input-new-password')?.value || '';
+      const btn = document.getElementById('btn-change-password');
+      if (btn) btn.disabled = true;
+
+      const res = await API.changePassword(current, next);
+      if (btn) btn.disabled = false;
+
+      if (res.error) {
+        Alerts.toast(res.error.message || 'Erro ao alterar senha.', 'error');
+      } else {
+        Alerts.toast('Senha alterada com sucesso!', 'success');
+        document.getElementById('input-current-password').value = '';
+        document.getElementById('input-new-password').value = '';
+      }
+    });
+
+    // Settings: Prune Logs (>90 days)
+    document.getElementById('btn-prune-logs')?.addEventListener('click', async () => {
+      if (confirm('Deseja expurgar logs anteriores a 90 dias?')) {
+        const res = await API.pruneLogs(90);
+        if (res.error) {
+          Alerts.toast(res.error.message || 'Erro ao expurgar logs.', 'error');
+        } else {
+          Alerts.toast(`Logs expurgados! Registros removidos: ${res.data?.deleted_count || 0}`, 'success');
+          this._logsOffset = 0;
+          this.refresh();
+        }
+      }
+    });
+
+    // Settings: Clear all logs
+    document.getElementById('btn-clear-all-logs')?.addEventListener('click', async () => {
+      if (confirm('Atenção: deseja realmente limpar TODOS os logs do sistema?')) {
+        const res = await API.clearLogs();
+        if (res.error) {
+          Alerts.toast(res.error.message || 'Erro ao limpar logs.', 'error');
+        } else {
+          Alerts.toast('Todos os logs foram apagados com sucesso.', 'info');
+          this._logsOffset = 0;
+          this.refresh();
+        }
+      }
     });
   },
 };

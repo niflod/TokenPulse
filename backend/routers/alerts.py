@@ -1,10 +1,8 @@
-"""
-routers/alerts.py — Alert thresholds configuration and active alerts evaluation.
-"""
-
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -13,21 +11,26 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database import get_db
 from models import AlertConfig
 from security import require_admin
 from services.aggregator import aggregator
 from services.anomaly import detect_anomalies
+from services.webhook import dispatch_alert_webhook
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
+
+_last_dispatched_webhooks: dict[str, float] = {}
 
 
 class AlertConfigIn(BaseModel):
     provider: str = "all"
     metric: str  # e.g., 'daily_usage_pct', 'weekly_usage_pct', 'error_rate', 'latency_ms'
     threshold: float
+    webhook_url: Optional[str] = None
     enabled: bool = True
 
 
@@ -36,6 +39,7 @@ class AlertConfigOut(BaseModel):
     provider: str
     metric: str
     threshold: float
+    webhook_url: Optional[str] = None
     enabled: bool
 
 
@@ -74,7 +78,7 @@ async def get_active_alerts(db: AsyncSession = Depends(get_db)):
             label = f"Latência média de hoje ({round(val)}ms) excedeu o limite de {round(r.threshold)}ms."
 
         if val is not None and val >= r.threshold:
-            active_alerts.append({
+            alert_item = {
                 "id": f"rule-{r.id}",
                 "ruleId": r.id,
                 "provider": r.provider,
@@ -84,12 +88,20 @@ async def get_active_alerts(db: AsyncSession = Depends(get_db)):
                 "severity": severity,
                 "message": label,
                 "triggeredAt": now_iso,
-            })
+            }
+            active_alerts.append(alert_item)
+            if r.webhook_url or settings.alert_webhook_url:
+                dedup_key = f"{r.id}:{r.metric}"
+                now_ts = time.time()
+                # ponytail: in-memory 15m cooldown prevents webhook storming across poll cycles
+                if now_ts - _last_dispatched_webhooks.get(dedup_key, 0) > 900:
+                    _last_dispatched_webhooks[dedup_key] = now_ts
+                    asyncio.create_task(dispatch_alert_webhook(alert_item, custom_url=r.webhook_url))
 
     # 3. Add anomaly detections
     anomalies = await detect_anomalies(db, window_minutes=15)
     for i, a in enumerate(anomalies):
-        active_alerts.append({
+        anomaly_item = {
             "id": f"anomaly-{i}",
             "ruleId": None,
             "provider": a["provider"],
@@ -99,7 +111,10 @@ async def get_active_alerts(db: AsyncSession = Depends(get_db)):
             "severity": a.get("severity", "warning"),
             "message": a["message"],
             "triggeredAt": a["detected_at"],
-        })
+        }
+        active_alerts.append(anomaly_item)
+        if settings.alert_webhook_url:
+            asyncio.create_task(dispatch_alert_webhook(anomaly_item))
 
     return active_alerts
 
@@ -115,6 +130,7 @@ async def list_alert_configs(db: AsyncSession = Depends(get_db)):
             provider=r.provider,
             metric=r.metric,
             threshold=r.threshold,
+            webhook_url=r.webhook_url,
             enabled=r.enabled,
         )
         for r in rules
@@ -135,6 +151,7 @@ async def create_alert_config(
         provider=data.provider.lower(),
         metric=data.metric,
         threshold=data.threshold,
+        webhook_url=data.webhook_url,
         enabled=data.enabled,
     )
     db.add(rule)
@@ -144,6 +161,7 @@ async def create_alert_config(
         provider=rule.provider,
         metric=rule.metric,
         threshold=rule.threshold,
+        webhook_url=rule.webhook_url,
         enabled=rule.enabled,
     )
 

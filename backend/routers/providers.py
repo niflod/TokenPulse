@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
-SupportedProvider = Literal["openai", "anthropic", "gemini"]
+SupportedProvider = Literal["openai", "anthropic", "gemini", "groq", "mistral", "ollama"]
 
 
 class ProviderCreateRequest(BaseModel):

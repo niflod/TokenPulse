@@ -303,4 +303,54 @@ async def test_gateway_rate_limiting():
         await mock_client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_gateway_groq_and_mistral_proxy():
+    """Verify Groq and Mistral requests are routed, authenticated, and logged with pricing."""
+    fake_response = {
+        "id": "chatcmpl-mock-groq-1",
+        "choices": [{"message": {"role": "assistant", "content": "Groq fast response"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+    }
 
+    mock_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=fake_response))
+    )
+    app.state.http_client = mock_client
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            # 1. Groq request
+            res_groq = await client.post(
+                "/gateway/groq/v1/chat/completions",
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "Hi"}]},
+                headers={"Authorization": "Bearer gsk-test-mock-key"},
+            )
+            assert res_groq.status_code == 200
+            assert "x-tokenpulse-request-id" in res_groq.headers
+
+            # 2. Mistral request
+            res_mistral = await client.post(
+                "/gateway/mistral/v1/chat/completions",
+                json={"model": "codestral-latest", "messages": [{"role": "user", "content": "Code"}]},
+                headers={"Authorization": "Bearer mistral-test-mock-key"},
+            )
+            assert res_mistral.status_code == 200
+            assert "x-tokenpulse-request-id" in res_mistral.headers
+
+        # Verify DB logs
+        await asyncio.sleep(0.1)
+        async with AsyncSessionLocal() as db:
+            groq_log = (await db.execute(select(RequestLog).where(RequestLog.provider == "groq").order_by(RequestLog.id.desc()))).scalars().first()
+            assert groq_log is not None
+            assert groq_log.total_tokens == 150
+            assert groq_log.cost_total is not None
+            assert groq_log.cost_total > 0
+
+            mistral_log = (await db.execute(select(RequestLog).where(RequestLog.provider == "mistral").order_by(RequestLog.id.desc()))).scalars().first()
+            assert mistral_log is not None
+            assert mistral_log.total_tokens == 150
+            assert mistral_log.cost_total is not None
+            assert mistral_log.cost_total > 0
+    finally:
+        await mock_client.aclose()

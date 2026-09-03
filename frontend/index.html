@@ -51,6 +51,9 @@
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
             <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral AI</option>
+            <option value="ollama">Ollama (Local)</option>
           </select>
           <i data-lucide="chevron-down" class="select-chevron"></i>
         </div>
@@ -539,6 +542,9 @@
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq</option>
+                  <option value="mistral">Mistral AI</option>
+                  <option value="ollama">Ollama (Local)</option>
                 </select>
               </div>
 
@@ -602,6 +608,11 @@
                 <input type="number" step="0.1" id="input-alert-threshold" class="form-control" placeholder="ex: 80" required />
               </div>
 
+              <div class="form-group">
+                <label for="input-alert-webhook">Webhook URL (Discord / Slack - Opcional)</label>
+                <input type="url" id="input-alert-webhook" class="form-control" placeholder="https://discord.com/api/webhooks/..." />
+              </div>
+
               <div class="form-actions">
                 <button type="submit" class="btn btn-secondary">
                   <i data-lucide="bell-plus"></i>
@@ -618,7 +629,46 @@
             </div>
           </div>
 
-          <!-- 3. PREFERÊNCIAS GERAIS -->
+          <!-- 3. CHAVES VIRTUAIS DO GATEWAY (CLIENT API KEYS) -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="key" class="text-accent"></i>
+                <h3 class="card-title">Chaves Virtuais do Gateway (Client API Keys)</h3>
+              </div>
+            </div>
+            <p class="form-hint" style="margin-bottom: 16px;">
+              Gere chaves <code>tp_live_...</code> para que suas aplicações acessem o Gateway sem expor as chaves reais dos provedores.
+            </p>
+
+            <form id="form-create-client-key" class="form-grid">
+              <div class="form-group">
+                <label for="input-client-key-name">Nome da Aplicação / Cliente</label>
+                <input type="text" id="input-client-key-name" class="form-control" placeholder="ex: App Mobile Produção" required />
+              </div>
+
+              <div class="form-group">
+                <label for="input-client-key-rpm">Limite de Taxa (RPM)</label>
+                <input type="number" id="input-client-key-rpm" class="form-control" value="60" min="1" max="10000" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">
+                  <i data-lucide="plus-circle"></i>
+                  <span>Emitir Nova Chave</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h4 class="subsection-title">Chaves Ativas</h4>
+            <div id="client-keys-list" class="configured-providers-list">
+              <!-- Populado via JS -->
+            </div>
+          </div>
+
+          <!-- 4. PREFERÊNCIAS GERAIS -->
           <div class="card settings-card">
             <div class="card-header">
               <div class="flex-row gap-2">
@@ -647,6 +697,51 @@
             <button type="button" class="btn btn-secondary btn-sm" id="btn-save-admin-key" style="margin-top: 8px;">
               Salvar Chave Admin
             </button>
+          </div>
+
+          <!-- 4. SEGURANÇA DA CONTA & RETENÇÃO -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="lock" class="text-accent"></i>
+                <h3 class="card-title">Segurança da Conta & Manutenção</h3>
+              </div>
+            </div>
+
+            <!-- Alterar Senha -->
+            <form id="form-change-password" class="form-grid">
+              <div class="form-group">
+                <label for="input-current-password">Senha Atual</label>
+                <input type="password" id="input-current-password" class="form-control" required autocomplete="current-password" />
+              </div>
+              <div class="form-group">
+                <label for="input-new-password">Nova Senha</label>
+                <input type="password" id="input-new-password" class="form-control" minlength="8" required autocomplete="new-password" />
+                <small class="form-hint">Mínimo 8 caracteres.</small>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary" id="btn-change-password">
+                  <i data-lucide="key-round"></i>
+                  <span>Alterar Senha</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <!-- Manutenção de Logs -->
+            <h4 class="subsection-title">Limpeza de Histórico de Logs</h4>
+            <p class="form-hint" style="margin-bottom: 12px;">Remova requisições antigas para liberar espaço no banco SQLite.</p>
+            <div class="flex-row gap-3">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-prune-logs">
+                <i data-lucide="archive"></i>
+                <span>Expurgar > 90 dias</span>
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" id="btn-clear-all-logs">
+                <i data-lucide="trash-2"></i>
+                <span>Limpar Todos os Logs</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>

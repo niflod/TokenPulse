@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -39,12 +39,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["gateway"])
 
-SupportedProvider = Literal["openai", "anthropic", "gemini"]
+SupportedProvider = Literal["openai", "anthropic", "gemini", "groq", "mistral", "ollama"]
 
 DEFAULT_UPSTREAM_BASES: Dict[str, str] = {
     "openai": "https://api.openai.com",
     "anthropic": "https://api.anthropic.com",
     "gemini": "https://generativelanguage.googleapis.com",
+    "groq": "https://api.groq.com/openai",
+    "mistral": "https://api.mistral.ai",
+    "ollama": "http://127.0.0.1:11434",
 }
 
 HOP_BY_HOP_HEADERS = {
@@ -140,9 +143,26 @@ async def ingest_telemetry(data: TelemetryEvent, db: AsyncSession = Depends(get_
     }
 
 
-# -----------------------------------------------------------------------------
-# Gateway Helper Utilities
-# -----------------------------------------------------------------------------
+async def _check_provider_budget(provider: str) -> None:
+    """Blocks requests if provider consumption exceeds configured monthly budget."""
+    budget = getattr(settings, "provider_monthly_budget", None)
+    if not budget or budget <= 0:
+        return
+
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    async with AsyncSessionLocal() as db:
+        q = select(func.sum(RequestLog.cost_total)).where(
+            RequestLog.provider == provider.lower(),
+            RequestLog.timestamp >= month_start,
+        )
+        total_spent = (await db.execute(q)).scalar() or 0.0
+
+        if total_spent >= budget:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Orçamento mensal do provedor '{provider}' excedido (${round(total_spent, 2)} / ${budget:.2f}). Requisições bloqueadas preventivamente.",
+            )
+
 
 async def _resolve_provider_credentials(provider: str, client_auth_header: Optional[str]) -> tuple[Optional[str], str]:
     """
@@ -157,8 +177,22 @@ async def _resolve_provider_credentials(provider: str, client_auth_header: Optio
     if client_auth_header and client_auth_header.strip():
         parts = client_auth_header.strip().split()
         candidate = parts[-1] if len(parts) > 1 else parts[0]
-        # Only use if not a placeholder dummy key
-        if candidate and not candidate.startswith("tp_dummy_"):
+        if candidate and candidate.startswith("tp_live_"):
+            import hashlib
+            from models import ClientApiKey
+            k_hash = hashlib.sha256(candidate.strip().encode("utf-8")).hexdigest()
+            async with AsyncSessionLocal() as db:
+                stmt = select(ClientApiKey).where(ClientApiKey.key_hash == k_hash, ClientApiKey.enabled == True)
+                k_rec = (await db.execute(stmt)).scalar_one_or_none()
+                if not k_rec:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Chave virtual TokenPulse (tp_live_...) inválida ou desabilitada.",
+                    )
+                k_rec.last_used_at = datetime.now(timezone.utc)
+                await db.commit()
+            resolved_key = None  # Will resolve from DB provider configuration below
+        elif candidate and not candidate.startswith("tp_dummy_"):
             resolved_key = candidate
 
     # 2. If not provided by client, retrieve from database
@@ -183,6 +217,12 @@ async def _resolve_provider_credentials(provider: str, client_auth_header: Optio
             resolved_key = settings.anthropic_api_key
         elif clean_provider == "gemini":
             resolved_key = settings.gemini_api_key
+        elif clean_provider == "groq":
+            resolved_key = settings.groq_api_key
+        elif clean_provider == "mistral":
+            resolved_key = settings.mistral_api_key
+        elif clean_provider == "ollama":
+            resolved_key = "ollama-local"
 
     return resolved_key, configured_base
 
@@ -308,6 +348,9 @@ async def _proxy_request(
             headers={"Retry-After": str(retry_after)},
         )
 
+    # 3. Monthly Financial Budget Cap Check
+    await _check_provider_budget(clean_provider)
+
     tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
     start_time = time.perf_counter()
 
@@ -337,13 +380,11 @@ async def _proxy_request(
 
     # Normalize path
     target_path = subpath.lstrip("/")
-    if clean_provider == "openai":
+    if clean_provider in ("openai", "groq", "mistral", "ollama"):
         if not target_path.startswith("v1/"):
             target_path = f"v1/{target_path}"
         upstream_url = f"{base_url.rstrip('/')}/{target_path}"
-    elif clean_provider == "anthropic":
-        upstream_url = f"{base_url.rstrip('/')}/{target_path}"
-    elif clean_provider == "gemini":
+    elif clean_provider in ("anthropic", "gemini"):
         upstream_url = f"{base_url.rstrip('/')}/{target_path}"
 
     # Build upstream query params
@@ -357,7 +398,7 @@ async def _proxy_request(
         if k.lower() not in HOP_BY_HOP_HEADERS:
             out_headers[k] = v
 
-    if clean_provider == "openai" and api_key:
+    if clean_provider in ("openai", "groq", "mistral", "ollama") and api_key:
         out_headers["authorization"] = f"Bearer {api_key}"
     elif clean_provider == "anthropic" and api_key:
         out_headers["x-api-key"] = api_key
@@ -407,7 +448,7 @@ async def _proxy_request(
                 try:
                     resp_json = json.loads(resp_bytes.decode("utf-8"))
                     provider_req_id = resp_json.get("id") or provider_req_id
-                    if clean_provider == "openai":
+                    if clean_provider in ("openai", "groq", "mistral", "ollama"):
                         u = resp_json.get("usage") or {}
                         input_tokens = u.get("prompt_tokens")
                         output_tokens = u.get("completion_tokens")

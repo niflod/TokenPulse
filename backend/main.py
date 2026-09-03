@@ -30,6 +30,7 @@ from routers import (
     providers_router,
     realtime_router,
 )
+from routers.api_keys import router as api_keys_router
 from routers.auth import router as auth_router
 from services.aggregator import aggregator
 
@@ -167,10 +168,15 @@ async def jwt_auth_middleware(request, call_next):
     if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
         return await call_next(request)
 
-    # Check JWT token
+    # Check JWT token from Authorization header or query parameter (for SSE / direct file downloads)
+    token = None
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:].strip()
+    elif request.query_params.get("token"):
+        token = request.query_params.get("token")
+
+    if token:
         try:
             from routers.auth import decode_access_token
             decode_access_token(token)
@@ -197,6 +203,7 @@ async def jwt_auth_middleware(request, call_next):
 
 # Register API Routers
 app.include_router(auth_router)
+app.include_router(api_keys_router)
 app.include_router(metrics_router)
 app.include_router(providers_router)
 app.include_router(models_router)

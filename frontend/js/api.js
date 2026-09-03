@@ -175,11 +175,58 @@ const API = {
     });
   },
 
+  async pruneLogs(retentionDays = 90) {
+    return this._request('/api/logs/prune', {
+      method: 'POST',
+      body: JSON.stringify({ retention_days: retentionDays }),
+    });
+  },
+
+  async changePassword(currentPassword, newPassword) {
+    return this._request('/api/auth/password', {
+      method: 'PUT',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+  },
+
+  exportCSV(provider = '') {
+    const token = localStorage.getItem('tp_token') || '';
+    const qs = new URLSearchParams();
+    if (provider) qs.append('provider', provider);
+    if (token) qs.append('token', token);
+    const url = `${this.BASE_URL}/api/export/csv?${qs.toString()}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
+  exportJSON(provider = '') {
+    const token = localStorage.getItem('tp_token') || '';
+    const qs = new URLSearchParams();
+    if (provider) qs.append('provider', provider);
+    if (token) qs.append('token', token);
+    const url = `${this.BASE_URL}/api/export/json?${qs.toString()}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  },
+
   /**
    * Connect to Server-Sent Events (SSE) stream for real-time telemetry updates.
    */
   connectRealtime(onEvent, onError) {
-    const url = `${this.BASE_URL}/api/realtime/stream`;
+    const token = localStorage.getItem('tp_token');
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    const url = `${this.BASE_URL}/api/realtime/stream${qs}`;
     try {
       const eventSource = new EventSource(url);
       eventSource.onmessage = (e) => {
@@ -198,5 +245,25 @@ const API = {
       if (onError) onError(err);
       return null;
     }
+  },
+
+  // Client API Keys
+  async getClientKeys() {
+    return this._request('/api/keys');
+  },
+
+  async createClientKey(data) {
+    return this._request('/api/keys', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteClientKey(id) {
+    return this._request(`/api/keys/${id}`, { method: 'DELETE' });
+  },
+
+  async toggleClientKey(id) {
+    return this._request(`/api/keys/${id}/toggle`, { method: 'PUT' });
   },
 };
