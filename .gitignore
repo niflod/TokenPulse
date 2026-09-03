@@ -1,6 +1,7 @@
 # Environment & Virtual Environments
 .venv/
 backend/.venv/
+backend/tests
 venv/
 env/
 .env
