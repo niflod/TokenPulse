@@ -174,10 +174,12 @@ async def _resolve_provider_credentials(provider: str, client_auth_header: Optio
     resolved_key = None
 
     # 1. Check if client sent an Authorization / API key header
+    is_virtual_key = False
     if client_auth_header and client_auth_header.strip():
         parts = client_auth_header.strip().split()
         candidate = parts[-1] if len(parts) > 1 else parts[0]
         if candidate and candidate.startswith("tp_live_"):
+            is_virtual_key = True
             import hashlib
             from models import ClientApiKey
             k_hash = hashlib.sha256(candidate.strip().encode("utf-8")).hexdigest()
@@ -223,6 +225,12 @@ async def _resolve_provider_credentials(provider: str, client_auth_header: Optio
             resolved_key = settings.mistral_api_key
         elif clean_provider == "ollama":
             resolved_key = "ollama-local"
+
+    if is_virtual_key and not resolved_key and clean_provider != "ollama":
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Provedor upstream '{clean_provider}' não possui chave de API configurada no TokenPulse.",
+        )
 
     return resolved_key, configured_base
 
@@ -380,7 +388,11 @@ async def _proxy_request(
 
     # Normalize path
     target_path = subpath.lstrip("/")
-    if clean_provider in ("openai", "groq", "mistral", "ollama"):
+    if clean_provider == "ollama":
+        if not target_path.startswith("v1/") and not target_path.startswith("api/"):
+            target_path = f"v1/{target_path}"
+        upstream_url = f"{base_url.rstrip('/')}/{target_path}"
+    elif clean_provider in ("openai", "groq", "mistral"):
         if not target_path.startswith("v1/"):
             target_path = f"v1/{target_path}"
         upstream_url = f"{base_url.rstrip('/')}/{target_path}"
@@ -398,8 +410,15 @@ async def _proxy_request(
         if k.lower() not in HOP_BY_HOP_HEADERS:
             out_headers[k] = v
 
-    if clean_provider in ("openai", "groq", "mistral", "ollama") and api_key:
-        out_headers["authorization"] = f"Bearer {api_key}"
+    # Prevent leakage of TokenPulse virtual client key upstream
+    if "authorization" in out_headers and "tp_live_" in out_headers["authorization"]:
+        out_headers.pop("authorization", None)
+
+    if clean_provider in ("openai", "groq", "mistral", "ollama"):
+        if api_key:
+            out_headers["authorization"] = f"Bearer {api_key}"
+        else:
+            out_headers.pop("authorization", None)
     elif clean_provider == "anthropic" and api_key:
         out_headers["x-api-key"] = api_key
         if "anthropic-version" not in out_headers:

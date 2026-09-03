@@ -114,7 +114,11 @@ async def get_active_alerts(db: AsyncSession = Depends(get_db)):
         }
         active_alerts.append(anomaly_item)
         if settings.alert_webhook_url:
-            asyncio.create_task(dispatch_alert_webhook(anomaly_item))
+            dedup_key = f"anomaly:{a['provider']}:{a['type']}"
+            now_ts = time.time()
+            if now_ts - _last_dispatched_webhooks.get(dedup_key, 0) > 900:
+                _last_dispatched_webhooks[dedup_key] = now_ts
+                asyncio.create_task(dispatch_alert_webhook(anomaly_item))
 
     return active_alerts
 

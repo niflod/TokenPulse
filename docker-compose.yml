@@ -13,12 +13,16 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=false
-      - SECRET_KEY=${SECRET_KEY:-tokenpulse_default_secret_change_in_production_32chars}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY obrigatoria no .env com no minimo 32 caracteres}
       - ADMIN_API_KEY=${ADMIN_API_KEY:-}
       - DATABASE_URL=sqlite+aiosqlite:///./data/dashboard.db
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+      - PROVIDER_MONTHLY_BUDGET=${PROVIDER_MONTHLY_BUDGET:-}
       - GATEWAY_RATE_LIMIT_RPM=120
       - JWT_EXPIRATION_HOURS=24
       - LOG_RETENTION_DAYS=90

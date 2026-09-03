@@ -174,3 +174,108 @@ async def test_virtual_client_api_keys_flow():
         # 6. Delete key
         del_res = await client.delete(f"/api/keys/{key_id}", headers=auth_headers)
         assert del_res.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_webhook_ssrf_private_networks_blocked():
+    """Verify webhook dispatcher rejects private network IPs and localhost."""
+    alert_payload = {"metric": "test", "message": "test"}
+    mock_client = httpx.AsyncClient()
+    try:
+        # Loopback
+        assert await dispatch_alert_webhook(alert_payload, "http://127.0.0.1:8080/hook", mock_client) is False
+        assert await dispatch_alert_webhook(alert_payload, "http://localhost:5000/hook", mock_client) is False
+        # Private RFC 1918 networks
+        assert await dispatch_alert_webhook(alert_payload, "http://192.168.1.1/hook", mock_client) is False
+        assert await dispatch_alert_webhook(alert_payload, "http://10.0.0.5:9000/hook", mock_client) is False
+        assert await dispatch_alert_webhook(alert_payload, "http://172.16.0.1/hook", mock_client) is False
+        # AWS metadata service
+        assert await dispatch_alert_webhook(alert_payload, "http://169.254.169.254/latest/meta-data", mock_client) is False
+    finally:
+        await mock_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_virtual_key_sanitization_and_502_when_upstream_unconfigured():
+    """Verify tp_live_ key never leaks upstream and returns 502 if upstream key is missing."""
+    token, _ = create_access_token("admin")
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    captured_upstream_headers = {}
+
+    def mock_upstream(req: httpx.Request):
+        captured_upstream_headers.update(dict(req.headers))
+        return httpx.Response(200, json={"id": "test", "choices": [{"message": {"content": "ok"}}]})
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_upstream))
+    app.state.http_client = mock_client
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            # 1. Create client key
+            k_res = await client.post("/api/keys", json={"name": "Test Key Leak Guard"}, headers=auth_headers)
+            live_key = k_res.json()["api_key"]
+
+            # 2. Call gateway for Anthropic where no key is configured -> Must return 502
+            res_502 = await client.post(
+                "/gateway/anthropic/v1/messages",
+                json={"model": "claude-3-5-sonnet-20241022"},
+                headers={"Authorization": f"Bearer {live_key}"},
+            )
+            assert res_502.status_code == 502
+            assert "não possui chave de API configurada" in res_502.json()["detail"]
+
+            # 3. Configure key for Groq and call gateway -> Outgoing headers must NOT contain tp_live_
+            from models import ProviderConfig
+            async with AsyncSessionLocal() as db:
+                secret = config.settings.get_fernet_key()
+                enc_key = ProviderConfig.encrypt_key("gsk-real-groq-upstream-key", secret)
+                stmt = select(ProviderConfig).where(ProviderConfig.name == "groq")
+                curr = (await db.execute(stmt)).scalar_one_or_none()
+                if curr:
+                    curr.api_key_encrypted = enc_key
+                    curr.enabled = True
+                else:
+                    db.add(ProviderConfig(name="groq", display_name="Groq", api_key_encrypted=enc_key, enabled=True))
+                await db.commit()
+
+            res_groq = await client.post(
+                "/gateway/groq/v1/chat/completions",
+                json={"model": "llama-3.3-70b-versatile"},
+                headers={"Authorization": f"Bearer {live_key}"},
+            )
+            assert res_groq.status_code == 200
+            # Upstream header MUST have the real key, NEVER tp_live_
+            assert captured_upstream_headers.get("authorization") == "Bearer gsk-real-groq-upstream-key"
+            assert "tp_live_" not in str(captured_upstream_headers)
+    finally:
+        await mock_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ollama_native_route_path():
+    """Verify native Ollama endpoints (api/generate) are not mangled with v1/ prefix."""
+    captured_urls = []
+
+    def mock_ollama(req: httpx.Request):
+        captured_urls.append(str(req.url))
+        return httpx.Response(200, json={"response": "ollama output"})
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_ollama))
+    app.state.http_client = mock_client
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            res = await client.post(
+                "/gateway/ollama/api/generate",
+                json={"model": "llama3", "prompt": "Hi"},
+            )
+            assert res.status_code == 200
+            assert len(captured_urls) == 1
+            assert captured_urls[0] == "http://127.0.0.1:11434/api/generate"
+            assert "v1/api" not in captured_urls[0]
+    finally:
+        await mock_client.aclose()
+

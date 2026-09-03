@@ -15,9 +15,10 @@ __pycache__/
 htmlcov/
 
 # Local SQLite databases & ephemeral logs
-data/*.db
-data/*.db-wal
-data/*.db-shm
+**/data/*.db*
+*.db
+*.db-wal
+*.db-shm
 *.log
 
 # IDE & Editor files

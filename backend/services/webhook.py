@@ -27,10 +27,27 @@ async def dispatch_alert_webhook(
         return False
 
     from urllib.parse import urlparse
+    import ipaddress
+    from security import BLOCKED_IP_NETWORKS
+
     parsed = urlparse(webhook_url)
-    if parsed.scheme.lower() != "https" or (parsed.hostname or "").lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        logger.warning("Rejected webhook URL due to non-HTTPS scheme or local loopback address: %s", webhook_url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        logger.warning("Rejected webhook URL due to invalid scheme: %s", webhook_url)
         return False
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname or hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+        logger.warning("Rejected webhook URL due to loopback/empty address: %s", webhook_url)
+        return False
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        for net in BLOCKED_IP_NETWORKS:
+            if ip in net:
+                logger.warning("SSRF Protection: Webhook address %s is in blocked network %s", ip, net)
+                return False
+    except ValueError:
+        pass
 
     # Format payload (compatible with Discord, Slack, and generic webhooks)
     severity = alert.get("severity", "warning").upper()
