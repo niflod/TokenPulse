@@ -1,0 +1,8 @@
+#!/mnt/852f644b-0319-4717-8a52-295a71971040/projetos/ai-usage-dashboard/backend/.venv/bin/python3
+# -*- coding: utf-8 -*-
+import re
+import sys
+from uvicorn.main import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenPulse — Observe your AI</title>
+  
+  <!-- Font Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Style -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- BANNER MODO DEMONSTRAÇÃO -->
+  <div id="demo-banner" class="demo-banner hidden">
+    <div class="demo-banner-content">
+      <i data-lucide="alert-triangle" class="icon-warning"></i>
+      <span><strong>TOKENPULSE DEMO MODE</strong> — Exibindo telemetria e dados simulados. Nenhuma API real conectada.</span>
+    </div>
+    <button id="btn-exit-demo" class="btn-demo-action">Sair do Demo</button>
+  </div>
+
+  <div class="app-layout">
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <i data-lucide="activity" class="brand-icon"></i>
+        </div>
+        <div class="brand-info">
+          <span class="brand-title">TOKENPULSE</span>
+          <span class="brand-subtitle">OBSERVE YOUR AI</span>
+        </div>
+      </div>
+
+      <!-- Provider Filter in Sidebar -->
+      <div class="sidebar-provider-filter">
+        <label for="select-global-provider">PROVEDOR ATIVO</label>
+        <div class="custom-select-wrapper">
+          <select id="select-global-provider" class="select-provider">
+            <option value="">Todos os Provedores</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+          <i data-lucide="chevron-down" class="select-chevron"></i>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="dashboard">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-page="models">
+          <i data-lucide="cpu"></i>
+          <span>Modelos</span>
+        </button>
+        <button class="nav-item" data-page="logs">
+          <i data-lucide="scroll-text"></i>
+          <span>Request Log</span>
+        </button>
+        <button class="nav-item" data-page="health">
+          <i data-lucide="heart-pulse"></i>
+          <span>System Health</span>
+          <span id="health-badge" class="badge-status-dot online"></span>
+        </button>
+        <button class="nav-item" data-page="settings">
+          <i data-lucide="sliders"></i>
+          <span>Configurações</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="connection-status-pill">
+          <span id="backend-status-dot" class="status-indicator-dot online"></span>
+          <span id="backend-status-text">Backend Conectado</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-container">
+      <!-- TOPBAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="page-title" class="page-heading">Dashboard de Uso</h1>
+          <span id="live-indicator" class="badge-live"><span class="pulse-dot"></span> AO VIVO</span>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Last update timestamp -->
+          <div class="time-meta">
+            <span class="meta-label">Última atualização:</span>
+            <span id="last-update-time" class="meta-value font-mono">--:--:--</span>
+          </div>
+
+          <!-- Refresh Button -->
+          <button id="btn-refresh" class="btn btn-secondary btn-icon" title="Atualizar dados agora">
+            <i data-lucide="refresh-cw" id="icon-refresh"></i>
+            <span>Atualizar</span>
+          </button>
+
+          <!-- Export Dropdown -->
+          <div class="dropdown">
+            <button id="btn-export" class="btn btn-secondary">
+              <i data-lucide="download"></i>
+              <span>Exportar</span>
+              <i data-lucide="chevron-down" class="icon-sm"></i>
+            </button>
+            <div id="export-menu" class="dropdown-menu hidden">
+              <button class="dropdown-item" id="export-csv"><i data-lucide="file-spreadsheet"></i> Exportar CSV</button>
+              <button class="dropdown-item" id="export-json"><i data-lucide="file-code"></i> Exportar JSON</button>
+              <button class="dropdown-item" id="export-report"><i data-lucide="file-text"></i> Baixar Relatório</button>
+            </div>
+          </div>
+
+          <!-- Demo toggle button -->
+          <button id="btn-toggle-demo" class="btn btn-demo-toggle">
+            <i data-lucide="sparkles"></i>
+            <span id="txt-demo-toggle">Demo Mode</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- CONTENT PAGES -->
+
+      <!-- ============================================================= -->
+      <!-- PAGE: DASHBOARD -->
+      <!-- ============================================================= -->
+      <section id="page-dashboard" class="page-content active">
+        
+        <!-- ACTIVE ANOMALIES & ALERTS BANNER -->
+        <div id="anomalies-container" class="alerts-stream hidden"></div>
+
+        <!-- 1. USAGE CARDS (HOJE, SEMANA, MÊS) -->
+        <div class="section-title-row">
+          <h2 class="section-title">Consumo de Limites</h2>
+          <span class="section-subtitle">Acompanhamento de cotas e risco de estouro</span>
+        </div>
+
+        <div class="cards-grid-3">
+          <!-- Card Hoje -->
+          <div class="card usage-card" id="card-usage-today">
+            <div class="card-header">
+              <div class="card-tag">HOJE</div>
+              <span class="card-risk-badge badge-normal" id="badge-risk-today">Normal</span>
+            </div>
+            <div class="usage-percentage-row">
+              <span class="usage-pct font-mono" id="val-pct-today">0.0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill fill-normal" id="bar-today" style="width: 0%;"></div>
+            </div>
+            <div class="usage-stats-footer">
+              <div>
+                <span class="stat-label">Utilizado</span>
+                <span class="stat-val font-mono" id="val-used-today">0 req</span>
+              </div>
+              <div class="text-right">
+                <span class="stat-label">Restante</span>
+                <span class="stat-val font-mono" id="val-left-today">0 req</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Esta Semana -->
+          <div class="card usage-card" id="card-usage-week">
+            <div class="card-header">
+              <div class="card-tag">ESTA SEMANA</div>
+              <span class="card-risk-badge badge-normal" id="badge-risk-week">Normal</span>
+            </div>
+            <div class="usage-percentage-row">
+              <span class="usage-pct font-mono" id="val-pct-week">0.0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill fill-normal" id="bar-week" style="width: 0%;"></div>
+            </div>
+            <div class="usage-stats-footer">
+              <div>
+                <span class="stat-label">Utilizado</span>
+                <span class="stat-val font-mono" id="val-used-week">0 req</span>
+              </div>
+              <div class="text-right">
+                <span class="stat-label">Restante</span>
+                <span class="stat-val font-mono" id="val-left-week">0 req</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Este Mês -->
+          <div class="card usage-card" id="card-usage-month">
+            <div class="card-header">
+              <div class="card-tag">ESTE MÊS</div>
+              <span class="card-risk-badge badge-normal" id="badge-risk-month">Normal</span>
+            </div>
+            <div class="usage-percentage-row">
+              <span class="usage-pct font-mono" id="val-pct-month">0.0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill fill-normal" id="bar-month" style="width: 0%;"></div>
+            </div>
+            <div class="usage-stats-footer">
+              <div>
+                <span class="stat-label">Utilizado</span>
+                <span class="stat-val font-mono" id="val-used-month">0 req</span>
+              </div>
+              <div class="text-right">
+                <span class="stat-label">Restante</span>
+                <span class="stat-val font-mono" id="val-left-month">0 req</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. MINI METRIC CARDS -->
+        <div class="mini-cards-grid">
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="layers"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Total de Tokens Hoje</span>
+              <span class="mini-card-val font-mono" id="mini-tokens-today">N/D</span>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="log-in"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Input Tokens</span>
+              <span class="mini-card-val font-mono" id="mini-input-tokens">N/D</span>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="log-out"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Output Tokens</span>
+              <span class="mini-card-val font-mono" id="mini-output-tokens">N/D</span>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="dollar-sign"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Custo Estimado Hoje</span>
+              <span class="mini-card-val font-mono text-accent" id="mini-cost-today">N/D</span>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="gauge"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Latência Média</span>
+              <span class="mini-card-val font-mono" id="mini-latency-today">N/D</span>
+            </div>
+          </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon"><i data-lucide="alert-circle"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Taxa de Erro</span>
+              <span class="mini-card-val font-mono" id="mini-error-rate">N/D</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. BURN RATE & PROJEÇÃO -->
+        <div class="card projection-card">
+          <div class="card-header">
+            <div class="flex-row gap-2">
+              <i data-lucide="trending-up" class="text-accent"></i>
+              <h3 class="card-title">Análise de Burn Rate e Projeção de Consumo</h3>
+            </div>
+            <span class="meta-label">Cálculo preditivo</span>
+          </div>
+          <div class="projection-grid" id="projection-content">
+            <div class="projection-metric">
+              <span class="proj-label">Velocidade Atual</span>
+              <span class="proj-value font-mono" id="proj-burn-rate">-- req/h</span>
+              <span class="proj-sub" id="proj-tokens-rate">-- tok/h</span>
+            </div>
+            <div class="projection-metric">
+              <span class="proj-label">Estimativa para Esgotar Cota (ETA)</span>
+              <span class="proj-value font-mono text-warning" id="proj-eta">--</span>
+              <span class="proj-sub">baseado no ritmo das últimas horas</span>
+            </div>
+            <div class="projection-metric">
+              <span class="proj-label">Projeção até Fim do Dia</span>
+              <span class="proj-value font-mono" id="proj-daily-est">-- req</span>
+              <span class="proj-sub" id="proj-daily-pct">-- % da cota diária</span>
+            </div>
+            <div class="projection-metric">
+              <span class="proj-label">Custo Diário Projetado</span>
+              <span class="proj-value font-mono text-accent" id="proj-daily-cost">N/D</span>
+              <span class="proj-sub">extrapolação 24h</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. GRÁFICOS LINHA 1 (Linha Temporal + Provedor) -->
+        <div class="charts-grid-2">
+          <div class="card chart-card">
+            <div class="chart-header">
+              <h3 class="card-title">Uso ao Longo do Tempo (Últimas 24h)</h3>
+              <div class="chart-legend-controls">
+                <span class="pill pill-active" data-metric="requests">Requests</span>
+                <span class="pill" data-metric="tokens">Tokens</span>
+                <span class="pill" data-metric="cost">Custos</span>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart-timeline"></canvas>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-header">
+              <h3 class="card-title">Distribuição por Provedor</h3>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart-providers"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. GRÁFICOS LINHA 2 (Input vs Output + Distribuição Horária) -->
+        <div class="charts-grid-2">
+          <div class="card chart-card">
+            <div class="chart-header">
+              <h3 class="card-title">Input vs Output Tokens</h3>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart-input-output"></canvas>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="chart-header">
+              <h3 class="card-title">Distribuição de Requests por Hora</h3>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart-hourly"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- PAGE: MODELOS -->
+      <!-- ============================================================= -->
+      <section id="page-models" class="page-content">
+        <div class="section-title-row">
+          <div>
+            <h2 class="section-title">Modelos Conectados</h2>
+            <span class="section-subtitle">Detecção automática de modelos e telemetria detalhada</span>
+          </div>
+          <div class="table-search-box">
+            <i data-lucide="search"></i>
+            <input type="text" id="filter-models-input" placeholder="Buscar por modelo ou provedor..." />
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table" id="table-models">
+              <thead>
+                <tr>
+                  <th data-sort="name">Modelo <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="provider">Provedor <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="requests" class="text-right">Requests <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="inputTokens" class="text-right">Input <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="outputTokens" class="text-right">Output <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="totalTokens" class="text-right">Total Tokens <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="latency" class="text-right">Latência <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="errorRate" class="text-right">Erros <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th data-sort="cost" class="text-right">Custo Estimado <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
+                  <th class="text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-models">
+                <!-- Linhas inseridas via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- PAGE: REQUEST LOG -->
+      <!-- ============================================================= -->
+      <section id="page-logs" class="page-content">
+        <div class="section-title-row">
+          <div>
+            <h2 class="section-title">Histórico de Requests</h2>
+            <span class="section-subtitle">Log de transações interceptadas</span>
+          </div>
+          <div class="log-filters">
+            <select id="filter-log-provider" class="select-filter">
+              <option value="">Todos os Provedores</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+            <select id="filter-log-status" class="select-filter">
+              <option value="">Todos os Status</option>
+              <option value="success">Sucesso (200)</option>
+              <option value="error">Erros (4xx, 5xx)</option>
+            </select>
+            <button id="btn-clear-logs" class="btn btn-danger btn-sm" title="Limpar histórico">
+              <i data-lucide="trash-2"></i>
+              <span>Limpar</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table" id="table-logs">
+              <thead>
+                <tr>
+                  <th>Hora (Local)</th>
+                  <th>Provedor</th>
+                  <th>Modelo</th>
+                  <th class="text-right">Tokens</th>
+                  <th class="text-right">Latência</th>
+                  <th class="text-center">Status</th>
+                  <th class="text-right">Custo</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-logs">
+                <!-- Logs via JS -->
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination-footer" id="logs-pagination">
+            <span id="logs-pagination-info" class="pagination-info">Mostrando 0 de 0</span>
+            <div class="pagination-controls">
+              <button id="btn-prev-page" class="btn btn-secondary btn-sm" disabled><i data-lucide="chevron-left"></i> Anterior</button>
+              <button id="btn-next-page" class="btn btn-secondary btn-sm" disabled>Próxima <i data-lucide="chevron-right"></i></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- PAGE: SYSTEM HEALTH -->
+      <!-- ============================================================= -->
+      <section id="page-health" class="page-content">
+        <div class="section-title-row">
+          <div>
+            <h2 class="section-title">Status dos Provedores</h2>
+            <span class="section-subtitle">Disponibilidade e conectividade em tempo real</span>
+          </div>
+          <button id="btn-health-check-now" class="btn btn-secondary btn-sm">
+            <i data-lucide="activity"></i>
+            <span>Testar Conexões</span>
+          </button>
+        </div>
+
+        <div class="health-cards-grid" id="health-grid">
+          <!-- Cards de Health por provedor gerados via JS -->
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- PAGE: CONFIGURAÇÕES -->
+      <!-- ============================================================= -->
+      <section id="page-settings" class="page-content">
+        <div class="section-title-row">
+          <div>
+            <h2 class="section-title">Configurações do Sistema</h2>
+            <span class="section-subtitle">Gerenciamento seguro de provedores, alertas e preferências</span>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <!-- 1. GERENCIADOR DE PROVEDORES -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="key" class="text-accent"></i>
+                <h3 class="card-title">Provedores de IA e Credenciais</h3>
+              </div>
+            </div>
+            
+            <div class="security-notice">
+              <i data-lucide="shield-check" class="icon-security"></i>
+              <div>
+                <strong>Segurança Garantida:</strong>
+                As API keys são criptografadas (Fernet) e armazenadas exclusivamente no backend. Elas nunca são enviadas ao navegador.
+              </div>
+            </div>
+
+            <!-- Form de Adicionar/Editar Provedor -->
+            <form id="form-provider" class="form-grid">
+              <div class="form-group">
+                <label for="input-provider-type">Provedor</label>
+                <select id="input-provider-type" class="form-control" required>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="input-provider-name">Nome de Exibição</label>
+                <input type="text" id="input-provider-name" class="form-control" placeholder="ex: OpenAI Produção" required />
+              </div>
+
+              <div class="form-group">
+                <label for="input-provider-key">API Key</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="input-provider-key" class="form-control" placeholder="sk-..." autocomplete="off" />
+                  <button type="button" class="btn-toggle-pwd" id="btn-toggle-key"><i data-lucide="eye"></i></button>
+                </div>
+                <small class="form-hint">Deixe em branco para manter a chave atual.</small>
+              </div>
+
+              <div class="form-group">
+                <label for="input-provider-url">Base URL (Opcional)</label>
+                <input type="url" id="input-provider-url" class="form-control" placeholder="https://api.openai.com/v1" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="btn-save-provider">
+                  <i data-lucide="plus"></i>
+                  <span>Salvar Provedor</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <!-- Lista de Provedores Configurados -->
+            <h4 class="subsection-title">Provedores Cadastrados</h4>
+            <div id="settings-providers-list" class="configured-providers-list">
+              <!-- Lista populada via JS -->
+            </div>
+          </div>
+
+          <!-- 2. REGRAS DE ALERTA -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="bell" class="text-accent"></i>
+                <h3 class="card-title">Regras de Notificação e Alertas</h3>
+              </div>
+            </div>
+            
+            <form id="form-alert" class="form-grid">
+              <div class="form-group">
+                <label for="input-alert-metric">Métrica Monitorada</label>
+                <select id="input-alert-metric" class="form-control">
+                  <option value="daily_usage_pct">Uso Diário (% da Cota)</option>
+                  <option value="error_rate">Taxa de Erro (%)</option>
+                  <option value="latency_ms">Latência Média (ms)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="input-alert-threshold">Limite de Disparo</label>
+                <input type="number" step="0.1" id="input-alert-threshold" class="form-control" placeholder="ex: 80" required />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">
+                  <i data-lucide="bell-plus"></i>
+                  <span>Adicionar Regra</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h4 class="subsection-title">Regras Ativas</h4>
+            <div id="settings-alerts-list" class="alerts-config-list">
+              <!-- Lista de regras populada via JS -->
+            </div>
+          </div>
+
+          <!-- 3. PREFERÊNCIAS GERAIS -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="settings" class="text-accent"></i>
+                <h3 class="card-title">Preferências da Dashboard</h3>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="select-refresh-interval">Intervalo de Atualização Automática (Polling Fallback)</label>
+              <select id="select-refresh-interval" class="form-control">
+                <option value="5000">A cada 5 segundos</option>
+                <option value="10000">A cada 10 segundos</option>
+                <option value="30000" selected>A cada 30 segundos (Padrão)</option>
+                <option value="60000">A cada 1 minuto</option>
+                <option value="300000">A cada 5 minutos</option>
+                <option value="0">Manual (Sem polling automático)</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="margin-top: 16px;">
+              <label for="input-admin-key">Chave de Administração (X-Admin-Key)</label>
+              <input type="password" id="input-admin-key" class="form-control" placeholder="Opcional: chave configurada no .env" autocomplete="off" />
+              <small class="form-hint">Necessária apenas se o backend foi iniciado com <code>ADMIN_API_KEY</code>.</small>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-save-admin-key" style="margin-top: 8px;">
+              Salvar Chave Admin
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================================================= -->
+  <!-- MODAL: DETALHES DO MODELO -->
+  <!-- ============================================================= -->
+  <div id="modal-model-detail" class="modal-overlay hidden">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="flex-row gap-3">
+          <div class="modal-badge-icon"><i data-lucide="cpu"></i></div>
+          <div>
+            <h3 id="modal-model-title" class="modal-title">gpt-4o</h3>
+            <span id="modal-model-provider" class="modal-subtitle">OpenAI</span>
+          </div>
+        </div>
+        <button id="modal-close" class="modal-btn-close"><i data-lucide="x"></i></button>
+      </div>
+
+      <div class="modal-body" id="modal-model-body">
+        <!-- Detalhes populados dinamicamente via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS CONTAINER -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Application Scripts -->
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/alerts.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/metrics.js"></script>
+  <script src="js/providers.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

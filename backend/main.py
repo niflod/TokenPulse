@@ -1,0 +1,161 @@
+"""
+main.py — FastAPI entrypoint for AI Usage Dashboard.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+
+from config import settings
+from database import AsyncSessionLocal, init_db
+from models import AlertConfig, ProviderConfig
+from routers import (
+    alerts_router,
+    export_router,
+    gateway_router,
+    health_router,
+    logs_router,
+    metrics_router,
+    models_router,
+    providers_router,
+    realtime_router,
+)
+from services.aggregator import aggregator
+
+logging.basicConfig(
+    level=logging.DEBUG if settings.debug else logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("ai_dashboard")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup & shutdown hook."""
+    logger.info("Starting AI Usage Dashboard backend...")
+    await init_db()
+
+    # Seed default AlertConfigs and register active providers from DB
+    async with AsyncSessionLocal() as db:
+        # 1. Alert defaults
+        res = await db.execute(select(AlertConfig))
+        existing_alerts = res.scalars().all()
+        if not existing_alerts:
+            defaults = [
+                AlertConfig(provider="all", metric="daily_usage_pct", threshold=80.0, enabled=True),
+                AlertConfig(provider="all", metric="error_rate", threshold=5.0, enabled=True),
+                AlertConfig(provider="all", metric="latency_ms", threshold=2000.0, enabled=True),
+            ]
+            db.add_all(defaults)
+            await db.commit()
+            logger.info("Initialized default alert rules.")
+
+        # 2. Register providers from DB into aggregator
+        p_res = await db.execute(select(ProviderConfig).where(ProviderConfig.enabled == True))
+        providers = p_res.scalars().all()
+        secret = settings.get_fernet_key()
+
+        for p in providers:
+            raw_key = p.decrypt_key(secret)
+            aggregator.register_provider(p.name, api_key=raw_key, base_url=p.base_url)
+
+        # 3. Check for pre-configured env keys if not already in DB
+        env_providers = [
+            ("openai", "OpenAI", settings.openai_api_key),
+            ("anthropic", "Anthropic", settings.anthropic_api_key),
+            ("gemini", "Google Gemini", settings.gemini_api_key),
+        ]
+        for name, disp, key in env_providers:
+            if key and not aggregator.get_adapter(name):
+                aggregator.register_provider(name, api_key=key)
+                logger.info("Loaded provider '%s' from environment variable.", name)
+
+    logger.info("AI Usage Dashboard backend ready on http://%s:%s", settings.host, settings.port)
+    yield
+    logger.info("Shutting down AI Usage Dashboard backend.")
+
+
+app = FastAPI(
+    title="TokenPulse — Observe your AI",
+    description="Observability and real-time usage monitoring for AI APIs (OpenAI, Anthropic, Gemini)",
+    version="1.1.0",
+    lifespan=lifespan,
+)
+
+# CORS middleware — restricted to trusted local origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Inject robust security headers and Content-Security-Policy on every response."""
+    response = await call_next(request)
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 ws:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    response.headers["Content-Security-Policy"] = csp
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+# Register API Routers
+app.include_router(metrics_router)
+app.include_router(providers_router)
+app.include_router(models_router)
+app.include_router(logs_router)
+app.include_router(health_router)
+app.include_router(alerts_router)
+app.include_router(export_router)
+app.include_router(realtime_router)
+app.include_router(gateway_router)
+
+
+@app.get("/api/ping")
+async def ping():
+    """Health ping endpoint."""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "1.0.0",
+    }
+
+
+# Mount frontend static files if directory exists
+frontend_path = Path(__file__).parent.parent / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+    logger.info("Mounted frontend static files from %s", frontend_path)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+    )
