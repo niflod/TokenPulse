@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
-from models import RequestLog
 from security import require_admin
 from services.cache_service import flush_all_cache, get_cache_statistics
 
@@ -26,31 +25,12 @@ class CacheConfigUpdate(BaseModel):
 @router.get("/stats")
 async def get_cache_stats(
     db: AsyncSession = Depends(get_db),
-    admin: dict = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Retrieves cache performance and cumulative financial savings."""
     stats = await get_cache_statistics(db)
-
-    # Calculate overall cache hit rate from RequestLog
-    total_reqs = (await db.execute(select(func.count(RequestLog.id)))).scalar() or 0
-    cache_hits = (
-        await db.execute(
-            select(func.count(RequestLog.id)).where(RequestLog.cache_hit == True)
-        )
-    ).scalar() or 0
-
-    hit_rate = round((cache_hits / total_reqs * 100), 1) if total_reqs > 0 else 0.0
-
-    return {
-        "active_entries": stats["active_entries"],
-        "total_hits": stats["total_hits"],
-        "total_saved_cost_usd": stats["total_saved_cost_usd"],
-        "cache_hit_rate_pct": hit_rate,
-        "total_gateway_requests": total_reqs,
-        "total_cached_requests": cache_hits,
-        "enabled": settings.gateway_cache_enabled,
-        "default_ttl_seconds": settings.gateway_cache_default_ttl,
-    }
+    stats["enabled"] = settings.gateway_cache_enabled
+    stats["default_ttl_seconds"] = settings.gateway_cache_default_ttl
+    return stats
 
 
 @router.get("/config")

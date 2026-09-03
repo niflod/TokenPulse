@@ -209,7 +209,6 @@ class GatewayResponseCache(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     response_json: Mapped[str] = mapped_column(Text, nullable=False)
-    response_headers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

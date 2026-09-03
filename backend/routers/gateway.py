@@ -338,9 +338,43 @@ async def _persist_gateway_telemetry(
             "latency_ms": round(latency_ms, 1),
             "ttft_ms": round(ttft_ms, 1) if ttft_ms else None,
             "status": status_code,
+            "cache_hit": bool(cache_hit),
         })
     except Exception as e:
         logger.error("Failed to save gateway telemetry: %s", redact_sensitive_text(str(e)))
+
+
+def _dispatch_cache_persistence(
+    cache_key: str,
+    provider: str,
+    model: str,
+    response_json: str,
+    input_tokens: Optional[int],
+    output_tokens: Optional[int],
+    total_tokens: Optional[int],
+    estimated_saved_cost: Optional[float],
+    ttl_seconds: int,
+) -> None:
+    """Dispatches asynchronous cache insertion in background without blocking caller."""
+    async def _save_task():
+        try:
+            async with AsyncSessionLocal() as cache_session:
+                await set_cached_response(
+                    db=cache_session,
+                    cache_key=cache_key,
+                    provider=provider,
+                    model=model,
+                    response_json=response_json,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    estimated_saved_cost=estimated_saved_cost,
+                    ttl_seconds=ttl_seconds,
+                )
+        except Exception as err:
+            logger.debug("Failed saving response cache: %s", err)
+
+    asyncio.create_task(_save_task())
 
 
 # -----------------------------------------------------------------------------
@@ -410,11 +444,32 @@ async def _proxy_request(
     tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
     start_time = time.perf_counter()
 
-    # 3. Response Caching Check (Deterministic SHA-256 Hash Matching)
+    # 3. Client Authentication & Virtual Key Validation (Before Cache / Routing)
+    client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
+    if client_auth and client_auth.strip():
+        parts = client_auth.strip().split()
+        candidate = parts[-1] if len(parts) > 1 else parts[0]
+        if candidate and candidate.startswith("tp_live_"):
+            import hashlib
+            from models import ClientApiKey
+            k_hash = hashlib.sha256(candidate.strip().encode("utf-8")).hexdigest()
+            async with AsyncSessionLocal() as db:
+                stmt = select(ClientApiKey).where(ClientApiKey.key_hash == k_hash, ClientApiKey.enabled == True)
+                k_rec = (await db.execute(stmt)).scalar_one_or_none()
+                if not k_rec:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Chave virtual TokenPulse (tp_live_...) inválida ou desabilitada.",
+                    )
+                k_rec.last_used_at = datetime.now(timezone.utc)
+                await db.commit()
+
+    # 4. Response Caching Check (Deterministic SHA-256 Hash Matching)
     cache_header = request.headers.get("x-tokenpulse-cache", "").lower().strip()
     cache_control = request.headers.get("cache-control", "").lower().strip()
     is_cache_bypassed = (
         not settings.gateway_cache_enabled
+        or request.method.upper() != "POST"
         or cache_header in ("false", "no-cache", "0", "off")
         or "no-cache" in cache_control
     )
@@ -427,7 +482,7 @@ async def _proxy_request(
 
     cache_key = None
     if not is_cache_bypassed and body_json:
-        cache_key = compute_gateway_cache_key(clean_provider, model_name, body_json)
+        cache_key = compute_gateway_cache_key(clean_provider, model_name, body_json, subpath=subpath)
         async with AsyncSessionLocal() as cache_db:
             cached_entry = await get_cached_response(cache_db, cache_key)
             if cached_entry:
@@ -479,40 +534,76 @@ async def _proxy_request(
                             except Exception:
                                 cached_data = {}
 
-                            choices = cached_data.get("choices") or []
                             content_text = ""
-                            if choices and isinstance(choices[0], dict):
+                            choices = cached_data.get("choices") or []
+                            if choices and isinstance(choices, list) and isinstance(choices[0], dict):
                                 content_text = choices[0].get("message", {}).get("content", "")
+                            elif "content" in cached_data and isinstance(cached_data["content"], list) and len(cached_data["content"]) > 0:
+                                content_text = cached_data["content"][0].get("text", "")
 
-                            chunk_id = f"chatcmpl-cache-{tp_req_id}"
-                            init_chunk = {
-                                "id": chunk_id,
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": model_name,
-                                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
-                            }
-                            yield f"data: {json.dumps(init_chunk)}\n\n".encode("utf-8")
+                            if clean_provider == "anthropic":
+                                # Anthropic SSE format
+                                init_chunk = {
+                                    "type": "message_start",
+                                    "message": {
+                                        "id": f"msg-cache-{tp_req_id}",
+                                        "type": "message",
+                                        "role": "assistant",
+                                        "content": [],
+                                        "model": model_name,
+                                        "stop_reason": None,
+                                        "stop_sequence": None,
+                                        "usage": {"input_tokens": cached_entry.input_tokens or 0, "output_tokens": cached_entry.output_tokens or 0},
+                                    }
+                                }
+                                yield f"event: message_start\ndata: {json.dumps(init_chunk)}\n\n".encode("utf-8")
 
-                            if content_text:
-                                text_chunk = {
+                                if content_text:
+                                    content_block_start = {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+                                    yield f"event: content_block_start\ndata: {json.dumps(content_block_start)}\n\n".encode("utf-8")
+
+                                    delta_chunk = {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": content_text}}
+                                    yield f"event: content_block_delta\ndata: {json.dumps(delta_chunk)}\n\n".encode("utf-8")
+
+                                    content_block_stop = {"type": "content_block_stop", "index": 0}
+                                    yield f"event: content_block_stop\ndata: {json.dumps(content_block_stop)}\n\n".encode("utf-8")
+
+                                msg_delta = {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}}
+                                yield f"event: message_delta\ndata: {json.dumps(msg_delta)}\n\n".encode("utf-8")
+
+                                msg_stop = {"type": "message_stop"}
+                                yield f"event: message_stop\ndata: {json.dumps(msg_stop)}\n\n".encode("utf-8")
+                            else:
+                                # OpenAI-compatible SSE format
+                                chunk_id = f"chatcmpl-cache-{tp_req_id}"
+                                init_chunk = {
                                     "id": chunk_id,
                                     "object": "chat.completion.chunk",
                                     "created": int(time.time()),
                                     "model": model_name,
-                                    "choices": [{"index": 0, "delta": {"content": content_text}, "finish_reason": None}],
+                                    "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
                                 }
-                                yield f"data: {json.dumps(text_chunk)}\n\n".encode("utf-8")
+                                yield f"data: {json.dumps(init_chunk)}\n\n".encode("utf-8")
 
-                            final_chunk = {
-                                "id": chunk_id,
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": model_name,
-                                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                            }
-                            yield f"data: {json.dumps(final_chunk)}\n\n".encode("utf-8")
-                            yield b"data: [DONE]\n\n"
+                                if content_text:
+                                    text_chunk = {
+                                        "id": chunk_id,
+                                        "object": "chat.completion.chunk",
+                                        "created": int(time.time()),
+                                        "model": model_name,
+                                        "choices": [{"index": 0, "delta": {"content": content_text}, "finish_reason": None}],
+                                    }
+                                    yield f"data: {json.dumps(text_chunk)}\n\n".encode("utf-8")
+
+                                final_chunk = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": model_name,
+                                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                                }
+                                yield f"data: {json.dumps(final_chunk)}\n\n".encode("utf-8")
+                                yield b"data: [DONE]\n\n"
                         finally:
                             total_dur = (time.perf_counter() - start_time) * 1000
                             asyncio.create_task(_persist_gateway_telemetry(
@@ -753,28 +844,19 @@ async def _proxy_request(
                     resp_headers["X-TokenPulse-Cache"] = "MISS"
 
                 if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason:
-                    _, _, estimated_c_tot = _calculate_cost(curr_prov, curr_mod, input_tokens, output_tokens)
+                    _, _, estimated_saved_cost = _calculate_cost(curr_prov, curr_mod, input_tokens, output_tokens)
                     raw_text = resp_bytes.decode("utf-8", errors="ignore")
-
-                    async def _save_cache_entry():
-                        try:
-                            async with AsyncSessionLocal() as cache_s:
-                                await set_cached_response(
-                                    db=cache_s,
-                                    cache_key=cache_key,
-                                    provider=curr_prov,
-                                    model=curr_mod,
-                                    response_json=raw_text,
-                                    input_tokens=input_tokens,
-                                    output_tokens=output_tokens,
-                                    total_tokens=total_tokens,
-                                    estimated_saved_cost=estimated_c_tot,
-                                    ttl_seconds=req_cache_ttl,
-                                )
-                        except Exception as c_err:
-                            logger.debug("Failed saving response cache: %s", c_err)
-
-                    asyncio.create_task(_save_cache_entry())
+                    _dispatch_cache_persistence(
+                        cache_key=cache_key,
+                        provider=curr_prov,
+                        model=curr_mod,
+                        response_json=raw_text,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        estimated_saved_cost=estimated_saved_cost,
+                        ttl_seconds=req_cache_ttl,
+                    )
 
                 return Response(
                     content=resp_bytes,
@@ -837,24 +919,34 @@ async def _proxy_request(
                                 ttft_recorded = (time.perf_counter() - start_time) * 1000
 
                             chunk_str = chunk.decode("utf-8", errors="ignore")
-                            if "usage" in chunk_str or "choices" in chunk_str:
+                            if "usage" in chunk_str or "choices" in chunk_str or "content_block_delta" in chunk_str or "delta" in chunk_str:
                                 for line in chunk_str.splitlines():
                                     if line.startswith("data: ") and not line.strip() == "data: [DONE]":
                                         try:
                                             data = json.loads(line[6:].strip())
                                             provider_req_id = data.get("id") or provider_req_id
-                                            u = data.get("usage")
-                                            if u:
-                                                tokens_in = u.get("prompt_tokens") or tokens_in
-                                                tokens_out = u.get("completion_tokens") or tokens_out
-                                                tokens_tot = u.get("total_tokens") or tokens_tot
+                                            usage_dict = data.get("usage")
+                                            if usage_dict:
+                                                tokens_in = usage_dict.get("prompt_tokens") or usage_dict.get("input_tokens") or tokens_in
+                                                tokens_out = usage_dict.get("completion_tokens") or usage_dict.get("output_tokens") or tokens_out
+                                                tokens_tot = usage_dict.get("total_tokens") or tokens_tot
+                                            # OpenAI format
                                             choices = data.get("choices") or []
                                             if choices and isinstance(choices, list) and isinstance(choices[0], dict):
                                                 delta = choices[0].get("delta") or {}
-                                                d_txt = delta.get("content")
-                                                if d_txt:
-                                                    accumulated_content += d_txt
+                                                delta_content = delta.get("content")
+                                                if delta_content:
+                                                    accumulated_content += delta_content
                                                 f_reason = choices[0].get("finish_reason")
+                                                if f_reason:
+                                                    finish_res = f_reason
+                                            # Anthropic format
+                                            elif data.get("type") == "content_block_delta":
+                                                delta_content = data.get("delta", {}).get("text")
+                                                if delta_content:
+                                                    accumulated_content += delta_content
+                                            elif data.get("type") == "message_delta":
+                                                f_reason = data.get("delta", {}).get("stop_reason")
                                                 if f_reason:
                                                     finish_res = f_reason
                                         except Exception:
@@ -893,45 +985,49 @@ async def _proxy_request(
                             fallback_reason=fb_reason,
                         ))
 
-                        if cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
-                            cached_payload = {
-                                "id": provider_req_id or f"chatcmpl-{tp_req_id}",
-                                "object": "chat.completion",
-                                "created": int(time.time()),
-                                "model": curr_mod,
-                                "choices": [{
-                                    "index": 0,
-                                    "message": {"role": "assistant", "content": accumulated_content},
-                                    "finish_reason": finish_res or "stop",
-                                }],
-                                "usage": {
-                                    "prompt_tokens": tokens_in,
-                                    "completion_tokens": tokens_out,
-                                    "total_tokens": tokens_tot,
-                                },
-                            }
-                            _, _, estimated_c_tot = _calculate_cost(curr_prov, curr_mod, tokens_in, tokens_out)
-                            raw_stream_json = json.dumps(cached_payload)
-
-                            async def _save_stream_cache():
-                                try:
-                                    async with AsyncSessionLocal() as cache_s:
-                                        await set_cached_response(
-                                            db=cache_s,
-                                            cache_key=cache_key,
-                                            provider=curr_prov,
-                                            model=curr_mod,
-                                            response_json=raw_stream_json,
-                                            input_tokens=tokens_in,
-                                            output_tokens=tokens_out,
-                                            total_tokens=tokens_tot,
-                                            estimated_saved_cost=estimated_c_tot,
-                                            ttl_seconds=req_cache_ttl,
-                                        )
-                                except Exception as c_err:
-                                    logger.debug("Failed saving streaming cache: %s", c_err)
-
-                            asyncio.create_task(_save_stream_cache())
+                        if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
+                            if curr_prov == "anthropic":
+                                cached_payload = {
+                                    "id": provider_req_id or f"msg-{tp_req_id}",
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "model": curr_mod,
+                                    "content": [{"type": "text", "text": accumulated_content}],
+                                    "stop_reason": finish_res or "end_turn",
+                                    "usage": {
+                                        "input_tokens": tokens_in or 0,
+                                        "output_tokens": tokens_out or 0,
+                                    },
+                                }
+                            else:
+                                cached_payload = {
+                                    "id": provider_req_id or f"chatcmpl-{tp_req_id}",
+                                    "object": "chat.completion",
+                                    "created": int(time.time()),
+                                    "model": curr_mod,
+                                    "choices": [{
+                                        "index": 0,
+                                        "message": {"role": "assistant", "content": accumulated_content},
+                                        "finish_reason": finish_res or "stop",
+                                    }],
+                                    "usage": {
+                                        "prompt_tokens": tokens_in,
+                                        "completion_tokens": tokens_out,
+                                        "total_tokens": tokens_tot,
+                                    },
+                                }
+                            _, _, estimated_saved_cost = _calculate_cost(curr_prov, curr_mod, tokens_in, tokens_out)
+                            _dispatch_cache_persistence(
+                                cache_key=cache_key,
+                                provider=curr_prov,
+                                model=curr_mod,
+                                response_json=json.dumps(cached_payload),
+                                input_tokens=tokens_in,
+                                output_tokens=tokens_out,
+                                total_tokens=tokens_tot,
+                                estimated_saved_cost=estimated_saved_cost,
+                                ttl_seconds=req_cache_ttl,
+                            )
 
                 return StreamingResponse(
                     stream_generator(),

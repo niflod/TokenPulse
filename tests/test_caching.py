@@ -313,3 +313,127 @@ async def test_cache_management_endpoints():
         assert flush_res.json()["status"] == "ok"
 
 
+@pytest.mark.asyncio
+async def test_gateway_cache_rejects_invalid_virtual_key_even_on_cached_prompt():
+    """Verify security fix: invalid tp_live_ key receives 401 Unauthorized even if prompt is in cache."""
+    import httpx
+    from main import app
+    import asyncio
+
+    def mock_handler(req: httpx.Request):
+        return httpx.Response(200, json={
+            "id": "chatcmpl-cached-sec",
+            "choices": [{"message": {"content": "Sensitive cached content"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        })
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    app.state.http_client = mock_client
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            payload = {
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Confidential financial prompt"}],
+            }
+
+            # 1. Prime the cache as legitimate request
+            prime_res = await client.post("/gateway/openai/v1/chat/completions", json=payload)
+            assert prime_res.status_code == 200
+
+            await asyncio.sleep(0.15)
+
+            # 2. Attacker uses an unauthorized/forged tp_live_ key
+            attacker_res = await client.post(
+                "/gateway/openai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": "Bearer tp_live_attacker_unauthorized_key_999"},
+            )
+            # MUST be rejected with 401, NOT served from cache!
+            assert attacker_res.status_code == 401
+            assert "inválida ou desabilitada" in attacker_res.text
+    finally:
+        await mock_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_cache_streaming_anthropic_format():
+    """Verify Anthropic cached responses stream in native Anthropic SSE event format."""
+    import httpx
+    from main import app
+    import asyncio
+
+    def mock_handler(req: httpx.Request):
+        return httpx.Response(200, json={
+            "id": "msg-anthropic-123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Anthropic cached answer"}],
+            "usage": {"input_tokens": 15, "output_tokens": 20},
+        })
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    app.state.http_client = mock_client
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            payload = {
+                "model": "claude-3-5-sonnet-20241022",
+                "messages": [{"role": "user", "content": "Explain quantum computing in Anthropic stream"}],
+            }
+
+            # 1. Prime the cache with Anthropic JSON response
+            prime_res = await client.post("/gateway/anthropic/v1/messages", json=payload)
+            assert prime_res.status_code == 200
+
+            await asyncio.sleep(0.15)
+
+            # 2. Request Anthropic streaming Cache HIT
+            stream_payload = dict(payload, stream=True)
+            stream_res = await client.post("/gateway/anthropic/v1/messages", json=stream_payload)
+            assert stream_res.status_code == 200
+            assert stream_res.headers.get("X-TokenPulse-Cache") == "HIT"
+            assert "text/event-stream" in stream_res.headers.get("content-type", "")
+
+            # Verify Anthropic SSE events
+            sse_content = stream_res.text
+            assert "event: message_start" in sse_content
+            assert "event: content_block_delta" in sse_content
+            assert "Anthropic cached answer" in sse_content
+            assert "event: message_stop" in sse_content
+    finally:
+        await mock_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cache_service_eviction():
+    """Verify evict_expired_cache removes expired records from SQLite."""
+    from services.cache_service import evict_expired_cache
+    from datetime import datetime, timezone, timedelta
+
+    async with AsyncSessionLocal() as db:
+        # Insert already expired entry
+        exp_entry = GatewayResponseCache(
+            cache_key="already_expired_key_test",
+            provider="openai",
+            model="gpt-4o",
+            response_json="{}",
+            hit_count=0,
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+        db.add(exp_entry)
+        await db.commit()
+
+        # Evict
+        evicted = await evict_expired_cache(db)
+        assert evicted >= 1
+
+        # Verify it is gone
+        check = await get_cached_response(db, "already_expired_key_test")
+        assert check is None
+
+
+
