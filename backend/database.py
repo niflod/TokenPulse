@@ -30,12 +30,17 @@ def _ensure_data_dir() -> None:
     db_url = settings.database_url
     # Extract file path from SQLite URL, e.g. sqlite+aiosqlite:///./data/dashboard.db
     if "sqlite" in db_url:
-        # Path after the triple slash
         path_part = db_url.split("///")[-1]
         dir_path = os.path.dirname(path_part)
         if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
-            logger.debug("Ensured data directory exists: %s", dir_path)
+            os.makedirs(dir_path, mode=0o700, exist_ok=True)
+            try:
+                os.chmod(dir_path, 0o700)
+                if os.path.exists(path_part):
+                    os.chmod(path_part, 0o600)
+            except OSError:
+                pass
+            logger.debug("Ensured data directory exists with secure permissions: %s", dir_path)
 
 
 _ensure_data_dir()

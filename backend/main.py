@@ -89,6 +89,9 @@ async def lifespan(app: FastAPI):
     )
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
         app.state.http_client = client
+        if not settings.admin_api_key:
+            logger.warning("ATENÇÃO DE SEGURANÇA: ADMIN_API_KEY não configurada. Defina ADMIN_API_KEY no .env para proteger rotas de mutação em produção.")
+
         logger.info("TokenPulse backend ready on http://%s:%s", settings.host, settings.port)
         yield
         logger.info("Shutting down TokenPulse backend.")
@@ -107,7 +110,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Admin-Key", "Authorization"],
+    allow_headers=["Content-Type", "X-Admin-Key", "Authorization", "x-api-key", "anthropic-version"],
 )
 
 

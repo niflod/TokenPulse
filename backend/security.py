@@ -152,3 +152,36 @@ def redact_sensitive_text(text: Optional[str]) -> Optional[str]:
         redacted = pattern.sub(r"[REDACTED]", redacted)
     return redacted
 
+
+import time
+from collections import defaultdict
+
+
+class InMemoryRateLimiter:
+    """
+    Sliding-window rate limiter in memory (stdlib only, zero external dependencies).
+    Limits requests per minute per key (e.g. client IP + provider).
+    """
+
+    def __init__(self, requests_per_minute: int = 120):
+        self.rpm = requests_per_minute
+        self._history: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, client_key: str) -> tuple[bool, int]:
+        if self.rpm <= 0:
+            return True, 0
+        now = time.time()
+        window_start = now - 60.0
+        # Filter timestamps within current 60s window
+        history = [t for t in self._history[client_key] if t > window_start]
+        if len(history) >= self.rpm:
+            retry_after = int(60.0 - (now - history[0])) + 1
+            return False, max(1, retry_after)
+        history.append(now)
+        self._history[client_key] = history
+        return True, 0
+
+
+gateway_rate_limiter = InMemoryRateLimiter(settings.gateway_rate_limit_rpm)
+
+

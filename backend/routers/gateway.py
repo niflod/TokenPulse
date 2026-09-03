@@ -28,6 +28,7 @@ from models import ProviderConfig, RequestLog
 from pricing import lookup_pricing
 from security import (
     OFFICIAL_PROVIDER_DOMAINS,
+    gateway_rate_limiter,
     redact_sensitive_text,
     require_admin,
     validate_provider_base_url,
@@ -287,6 +288,24 @@ async def _proxy_request(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Provedor '{provider}' não suportado. Provedores válidos: openai, anthropic, gemini.",
+        )
+
+    # 1. Path traversal and injection defense
+    if ".." in subpath or subpath.startswith("//") or "\\" in subpath:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Caminho de requisição inválido: sequências de path traversal são proibidas.",
+        )
+
+    # 2. Rate Limiting Check (RPM por IP + Provider)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    client_key = f"{client_ip}:{clean_provider}"
+    allowed, retry_after = gateway_rate_limiter.is_allowed(client_key)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Limite de taxa de requisições excedido no TokenPulse Gateway. Tente novamente em instantes.",
+            headers={"Retry-After": str(retry_after)},
         )
 
     tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"

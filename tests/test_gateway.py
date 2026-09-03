@@ -260,3 +260,43 @@ async def test_models_listing_and_detail():
         assert "usage" in detail
         assert "performance" in detail
 
+
+@pytest.mark.asyncio
+async def test_gateway_path_traversal_blocked():
+    """Verify path traversal attempts in subpath are rejected with 400 Bad Request."""
+    asgi_transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+        res = await client.post("/gateway/openai/v1/folder%2F..%2F..%2Fadmin", json={})
+        assert res.status_code == 400
+        assert "path traversal" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_rate_limiting():
+    """Verify exceeding rate limit triggers 429 Too Many Requests."""
+    from security import InMemoryRateLimiter
+    import routers.gateway as gw
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"data": []})))
+    app.state.http_client = mock_client
+
+    old_limiter = gw.gateway_rate_limiter
+    gw.gateway_rate_limiter = InMemoryRateLimiter(requests_per_minute=2)
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            # 1st and 2nd requests allowed (200 OK)
+            r1 = await client.post("/gateway/openai/v1/models", headers={"Authorization": "Bearer sk-test"})
+            assert r1.status_code == 200
+            r2 = await client.post("/gateway/openai/v1/models", headers={"Authorization": "Bearer sk-test"})
+            assert r2.status_code == 200
+            # 3rd must trigger 429 Too Many Requests
+            r3 = await client.post("/gateway/openai/v1/models", headers={"Authorization": "Bearer sk-test"})
+            assert r3.status_code == 429
+            assert "Retry-After" in r3.headers
+    finally:
+        gw.gateway_rate_limiter = old_limiter
+        await mock_client.aclose()
+
+
+

@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     max_request_body_size: int = 10 * 1024 * 1024  # 10 MB
     telemetry_enabled: bool = True
     log_retention_days: int = 90  # days
+    gateway_rate_limit_rpm: int = 120  # requests per minute per IP
 
     @field_validator("secret_key")
     @classmethod
