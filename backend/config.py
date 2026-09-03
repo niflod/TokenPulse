@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,15 +29,19 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = False
+    # Environment: development vs production
+    environment: str = Field(default="development", description="Ambiente de execução (development | production)")
 
-    # Security: SECRET_KEY is strictly required and must have at least 32 chars.
-    # In development, if not provided, auto-generates a secure ephemeral key and warns.
-    secret_key: str = Field(
-        default_factory=lambda: os.getenv("SECRET_KEY") or secrets.token_hex(32)
+    # Security: SECRET_KEY is strictly required and must have at least 32 chars in production.
+    # In development, if not provided, auto-generates a secure ephemeral key.
+    secret_key: Optional[str] = Field(
+        default=None,
+        description="Chave mestra para criptografia de credenciais (32+ caracteres em produção)"
     )
 
     # Optional Administrative API key for sensitive mutating endpoints
     admin_api_key: Optional[str] = None
+    admin_bootstrap_token: Optional[str] = None
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/dashboard.db"
@@ -80,15 +84,32 @@ class Settings(BaseSettings):
     gateway_cache_enabled: bool = True
     gateway_cache_default_ttl: int = 3600  # Default 1 hour in seconds
 
-    @field_validator("secret_key")
-    @classmethod
-    def validate_secret_key(cls, v: str) -> str:
-        if not v or len(v.strip()) < 32:
-            raise ValueError(
-                "SECRET_KEY must be at least 32 characters long. "
-                "Generate one using: python -c 'import secrets; print(secrets.token_hex(32))'"
-            )
-        return v.strip()
+    # Security Hardening Controls
+    ollama_allow_lan: bool = False
+    allow_custom_provider_urls: bool = False
+    gateway_allow_byok: bool = True
+    gateway_require_auth: bool = True
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        env = (self.environment or "development").strip().lower()
+        key = (self.secret_key or "").strip()
+        if env != "development":
+            if not key or len(key) < 32:
+                raise ValueError(
+                    "SECRET_KEY é obrigatória em ambiente de produção (ENVIRONMENT!=development) e deve possuir no mínimo 32 caracteres. "
+                    "Gere uma chave com: python -c 'import secrets; print(secrets.token_hex(32))'"
+                )
+        else:
+            if not key:
+                # Ephemeral key for local development only
+                self.secret_key = secrets.token_hex(32)
+            elif len(key) < 32:
+                raise ValueError(
+                    "SECRET_KEY must be at least 32 characters long. "
+                    "Generate one using: python -c 'import secrets; print(secrets.token_hex(32))'"
+                )
+        return self
 
     @field_validator("cors_origins", mode="before")
     @classmethod

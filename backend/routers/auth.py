@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import get_db
 from models import User
+from security import secrets_compare
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,21 @@ async def auth_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/setup")
-async def setup_admin(data: SetupRequest, db: AsyncSession = Depends(get_db)):
+async def setup_admin(data: SetupRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Create the admin user. Only works if no users exist (first-run wizard)."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    is_local = client_ip in ("127.0.0.1", "::1", "testclient")
+
+    bootstrap_token_header = request.headers.get("x-bootstrap-token") or request.headers.get("x-admin-bootstrap-token")
+    expected_token = settings.admin_bootstrap_token
+
+    if not is_local:
+        if not expected_token or not bootstrap_token_header or not secrets_compare(bootstrap_token_header, expected_token):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Setup administrativo remoto bloqueado. Execute o setup a partir de localhost ou forneça ADMIN_BOOTSTRAP_TOKEN válido no header X-Bootstrap-Token.",
+            )
+
     count = (await db.execute(select(func.count(User.id)))).scalar_one()
     if count > 0:
         raise HTTPException(
@@ -92,7 +106,7 @@ async def setup_admin(data: SetupRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     token, expires_in = create_access_token(user.username)
-    logger.info("Admin user '%s' created during initial setup.", user.username)
+    logger.info("Admin user '%s' created during initial setup from %s.", user.username, client_ip)
     return {"status": "created", "username": user.username, "token": token, "expires_in": expires_in}
 
 

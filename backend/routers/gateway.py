@@ -410,9 +410,51 @@ async def _proxy_request(
             detail="Caminho de requisição inválido: sequências de path traversal são proibidas.",
         )
 
-    # 2. Rate Limiting Check (RPM por IP + Provider)
+    # 2. Client Authentication & Virtual Key Validation
     client_ip = request.client.host if request.client else "127.0.0.1"
-    client_key = f"{client_ip}:{clean_provider}"
+    client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
+    auth_identity = client_ip
+
+    if getattr(settings, "gateway_require_auth", True):
+        if not client_auth or not client_auth.strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Autenticação obrigatória no TokenPulse Gateway. Forneça uma chave virtual TokenPulse (tp_live_...) no header Authorization ou X-API-Key.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    if client_auth and client_auth.strip():
+        parts = client_auth.strip().split()
+        candidate = parts[-1] if len(parts) > 1 else parts[0]
+        if candidate.startswith("tp_live_"):
+            import hashlib
+            from models import ClientApiKey
+            k_hash = hashlib.sha256(candidate.strip().encode("utf-8")).hexdigest()
+            async with AsyncSessionLocal() as db:
+                stmt = select(ClientApiKey).where(ClientApiKey.key_hash == k_hash, ClientApiKey.enabled == True)
+                k_rec = (await db.execute(stmt)).scalar_one_or_none()
+                if not k_rec:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Chave virtual TokenPulse (tp_live_...) inválida ou desabilitada.",
+                    )
+                k_rec.last_used_at = datetime.now(timezone.utc)
+                await db.commit()
+            auth_identity = f"key_{k_hash[:16]}"
+        elif candidate.startswith("tp_dummy_"):
+            auth_identity = f"test_{candidate[:12]}"
+        else:
+            # BYOK key
+            if not getattr(settings, "gateway_allow_byok", True):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Acesso BYOK (Bring Your Own Key) está desabilitado no Gateway. Utilize uma chave virtual TokenPulse (tp_live_...).",
+                )
+            import hashlib
+            auth_identity = f"byok_{hashlib.sha256(candidate.encode('utf-8')).hexdigest()[:16]}"
+
+    # 3. Rate Limiting Check (RPM por Identidade Autenticada / IP + Provider)
+    client_key = f"{auth_identity}:{clean_provider}"
     allowed, retry_after = gateway_rate_limiter.is_allowed(client_key)
     if not allowed:
         raise HTTPException(
@@ -421,7 +463,7 @@ async def _proxy_request(
             headers={"Retry-After": str(retry_after)},
         )
 
-    # 3. Monthly Financial Budget Cap Check & Fallback Candidates Setup
+    # 4. Monthly Financial Budget Cap Check & Fallback Candidates Setup
     body = await request.body()
     if len(body) > settings.max_request_body_size:
         raise HTTPException(
@@ -443,26 +485,6 @@ async def _proxy_request(
 
     tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
     start_time = time.perf_counter()
-
-    # 3. Client Authentication & Virtual Key Validation (Before Cache / Routing)
-    client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
-    if client_auth and client_auth.strip():
-        parts = client_auth.strip().split()
-        candidate = parts[-1] if len(parts) > 1 else parts[0]
-        if candidate and candidate.startswith("tp_live_"):
-            import hashlib
-            from models import ClientApiKey
-            k_hash = hashlib.sha256(candidate.strip().encode("utf-8")).hexdigest()
-            async with AsyncSessionLocal() as db:
-                stmt = select(ClientApiKey).where(ClientApiKey.key_hash == k_hash, ClientApiKey.enabled == True)
-                k_rec = (await db.execute(stmt)).scalar_one_or_none()
-                if not k_rec:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Chave virtual TokenPulse (tp_live_...) inválida ou desabilitada.",
-                    )
-                k_rec.last_used_at = datetime.now(timezone.utc)
-                await db.commit()
 
     # 4. Response Caching Check (Deterministic SHA-256 Hash Matching)
     cache_header = request.headers.get("x-tokenpulse-cache", "").lower().strip()

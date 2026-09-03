@@ -111,10 +111,48 @@ def secrets_compare(val1: str, val2: str) -> bool:
     return hmac.compare_digest(val1.encode("utf-8"), val2.encode("utf-8"))
 
 
+def _resolve_and_check_ips(hostname: str, allow_private: bool = False) -> None:
+    """
+    Resolves hostname to IP addresses and verifies none belong to blocked ranges.
+    Prevents DNS rebinding attacks where domain points to loopback or private ranges.
+    """
+    import socket
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        blocked_nets = (
+            [
+                ipaddress.ip_network("0.0.0.0/8"),
+                ipaddress.ip_network("127.0.0.0/8"),
+                ipaddress.ip_network("169.254.0.0/16"),
+                ipaddress.ip_network("::1/128"),
+                ipaddress.ip_network("fe80::/10"),
+            ]
+            if allow_private
+            else BLOCKED_IP_NETWORKS
+        )
+        for entry in addr_info:
+            sockaddr = entry[4]
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            for net in blocked_nets:
+                if ip in net:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"SSRF Protection: Hostname '{hostname}' resolve para endereço IP restrito ({ip_str}).",
+                    )
+    except socket.gaierror:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL de provedor inválida: falha na resolução de DNS para o hostname '{hostname}'.",
+        )
+
+
 def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Optional[str]:
     """
     Validates provider base URL against SSRF attacks.
-    Ensures HTTPS protocol and prevents redirection to internal networks or loopback.
+    Ensures HTTPS protocol (except Ollama local), resolves DNS to prevent DNS rebinding,
+    and blocks access to internal networks, loopback, or unauthorized custom domains.
     """
     if not base_url or not base_url.strip():
         return None
@@ -122,21 +160,21 @@ def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Option
     cleaned_url = base_url.strip().rstrip("/")
     parsed = urlparse(cleaned_url)
 
-    # Ollama is intended for local inference instances (HTTP or HTTPS)
-    if provider.lower() == "ollama":
+    provider_name = provider.lower().strip()
+
+    # 1. Scheme check: only HTTPS allowed for cloud providers, HTTP/HTTPS for Ollama
+    if provider_name == "ollama":
         if parsed.scheme.lower() not in ("http", "https"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Ollama requer protocolo HTTP ou HTTPS.",
             )
-        return cleaned_url
-
-    # 1. Scheme check: only HTTPS allowed for cloud providers
-    if parsed.scheme.lower() != "https":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Apenas conexões seguras HTTPS são permitidas para base_url.",
-        )
+    else:
+        if parsed.scheme.lower() != "https":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Apenas conexões seguras HTTPS são permitidas para base_url.",
+            )
 
     hostname = (parsed.hostname or "").lower()
     if not hostname:
@@ -145,14 +183,58 @@ def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Option
             detail="URL de provedor inválida: hostname ausente.",
         )
 
-    # 2. Block localhost / loopback names explicitly
+    # 2. Ollama specific handling
+    if provider_name == "ollama":
+        ollama_local = ("localhost", "127.0.0.1", "::1")
+        if hostname in ollama_local:
+            return cleaned_url
+        if not getattr(settings, "ollama_allow_lan", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"SSRF Protection: Ollama é restrito a instâncias locais (localhost, 127.0.0.1). "
+                    "Para permitir instâncias em rede local (LAN), defina OLLAMA_ALLOW_LAN=true."
+                ),
+            )
+        # When LAN is allowed, still prevent loopback, link-local and metadata
+        try:
+            ip = ipaddress.ip_address(hostname)
+            for net in [ipaddress.ip_network("169.254.0.0/16"), ipaddress.ip_network("0.0.0.0/8")]:
+                if ip in net:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"SSRF Protection: Endereço '{ip}' proibido para Ollama.",
+                    )
+        except ValueError:
+            _resolve_and_check_ips(hostname, allow_private=True)
+        return cleaned_url
+
+    # 3. Block literal localhost / loopback names explicitly for cloud providers
     if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="SSRF Protection: Endereços locais não são permitidos como base_url de provedor.",
         )
 
-    # 3. Check if hostname resolves to or is a private/reserved IP
+    # 4. Check official provider domain allowlist
+    allowed_domains = OFFICIAL_PROVIDER_DOMAINS.get(provider_name)
+    if allowed_domains and hostname not in allowed_domains:
+        if not getattr(settings, "allow_custom_provider_urls", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"SSRF Protection: Domínio customizado '{hostname}' não é permitido para o provedor '{provider}'. "
+                    f"Domínios autorizados: {', '.join(allowed_domains)}. "
+                    "Para permitir endpoints customizados, defina ALLOW_CUSTOM_PROVIDER_URLS=true."
+                ),
+            )
+        logger.warning(
+            "Custom domain '%s' configured for provider '%s' (ALLOW_CUSTOM_PROVIDER_URLS habilitado)",
+            hostname,
+            provider,
+        )
+
+    # 5. Check if hostname is an IP literal or domain that resolves to private/reserved IP
     try:
         ip = ipaddress.ip_address(hostname)
         for net in BLOCKED_IP_NETWORKS:
@@ -162,19 +244,8 @@ def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Option
                     detail="SSRF Protection: Endereços IP privados ou reservados são proibidos.",
                 )
     except ValueError:
-        # Not a direct IP literal, domain name is used
-        pass
-
-    # 4. If provider is in official list, ensure host belongs to allowed domain
-    allowed_domains = OFFICIAL_PROVIDER_DOMAINS.get(provider.lower())
-    if allowed_domains and hostname not in allowed_domains:
-        # Permitted only if explicitly safe domain
-        logger.warning(
-            "Custom domain '%s' configured for provider '%s' (Official: %s)",
-            hostname,
-            provider,
-            allowed_domains,
-        )
+        # Not a direct IP literal: resolve DNS to prevent DNS rebinding
+        _resolve_and_check_ips(hostname, allow_private=False)
 
     return cleaned_url
 
@@ -184,8 +255,10 @@ import re
 SENSITIVE_PATTERNS = [
     re.compile(r"(sk-[a-zA-Z0-9_\-]{16,})", re.IGNORECASE),
     re.compile(r"(AIza[0-9A-Za-z\-_]{30,})", re.IGNORECASE),
+    re.compile(r"(tp_live_[a-zA-Z0-9_\-]{16,})", re.IGNORECASE),
     re.compile(r"(Bearer\s+)([a-zA-Z0-9_\-\.]{16,})", re.IGNORECASE),
-    re.compile(r"((?:api[_-]?key|secret|token|password|auth)[\"']?\s*[:=]\s*[\"']?)([^\s\"',&]+)", re.IGNORECASE),
+    re.compile(r"((?:api[_-]?key|secret|token|password|auth|cookie|set-cookie|proxy-authorization)[\"']?\s*[:=]\s*[\"']?)([^\s\"',&;]+)", re.IGNORECASE),
+    re.compile(r"([?&](?:token|key|secret|password|apikey|api_key)=)([^&\s]+)", re.IGNORECASE),
 ]
 
 

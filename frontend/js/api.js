@@ -192,40 +192,76 @@ const API = {
     });
   },
 
-  exportCSV(provider = '') {
+  async exportCSV(provider = '') {
     const token = localStorage.getItem('tp_token') || '';
     const qs = new URLSearchParams();
     if (provider) qs.append('provider', provider);
-    if (token) qs.append('token', token);
-    const url = `${this.BASE_URL}/api/export/csv?${qs.toString()}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const url = `${this.BASE_URL}/api/export/csv${qs.toString() ? '?' + qs.toString() : ''}`;
+    try {
+      const resp = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) throw new Error(`Export failed with HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Failed exporting CSV:', err);
+    }
   },
 
-  exportJSON(provider = '') {
+  async exportJSON(provider = '') {
     const token = localStorage.getItem('tp_token') || '';
     const qs = new URLSearchParams();
     if (provider) qs.append('provider', provider);
-    if (token) qs.append('token', token);
-    const url = `${this.BASE_URL}/api/export/json?${qs.toString()}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const url = `${this.BASE_URL}/api/export/json${qs.toString() ? '?' + qs.toString() : ''}`;
+    try {
+      const resp = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) throw new Error(`Export failed with HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `tokenpulse_export_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Failed exporting JSON:', err);
+    }
   },
 
   /**
-   * Connect to Server-Sent Events (SSE) stream for real-time telemetry updates.
+   * Connect to Server-Sent Events (SSE) stream using disposable single-use tickets.
    */
-  connectRealtime(onEvent, onError) {
+  async connectRealtime(onEvent, onError) {
     const token = localStorage.getItem('tp_token');
-    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    let ticket = '';
+    if (token) {
+      try {
+        const ticketResp = await fetch(`${this.BASE_URL}/api/realtime/ticket`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (ticketResp.ok) {
+          const tData = await ticketResp.json();
+          ticket = tData.ticket || '';
+        }
+      } catch (err) {
+        console.warn('Failed obtaining SSE connection ticket:', err);
+      }
+    }
+
+    const qs = ticket ? `?ticket=${encodeURIComponent(ticket)}` : '';
     const url = `${this.BASE_URL}/api/realtime/stream${qs}`;
     try {
       const eventSource = new EventSource(url);

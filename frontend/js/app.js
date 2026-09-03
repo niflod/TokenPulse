@@ -56,7 +56,7 @@ const App = {
     this.startAutoRefresh();
   },
 
-  _initSSE() {
+  async _initSSE() {
     if (this._isDemoMode) {
       this._setSseStatus('disconnected', 'DEMO');
       return;
@@ -66,7 +66,7 @@ const App = {
       this._eventSource = null;
     }
     this._setSseStatus(null, 'CONECTANDO');
-    this._eventSource = API.connectRealtime(
+    this._eventSource = await API.connectRealtime(
       (data) => {
         this._setSseStatus('connected', 'AO VIVO');
         if ((data.type === 'request.completed' || data.type === 'request.failed') && !this._isDemoMode) {
@@ -430,10 +430,14 @@ const App = {
     // Render Fallback Rules
     const fbContainer = document.getElementById('fallback-rules-list');
     if (fbContainer) {
-      fbContainer.innerHTML = '';
+      fbContainer.replaceChildren();
       const { data: fbRules } = await API.getFallbackRules();
       if (!fbRules || fbRules.length === 0) {
-        fbContainer.innerHTML = '<p class="text-muted text-sm" style="padding: 8px 0;">Nenhuma regra de fallback configurada.</p>';
+        const emptyP = document.createElement('p');
+        emptyP.className = 'text-muted text-sm';
+        emptyP.style.padding = '8px 0';
+        emptyP.textContent = 'Nenhuma regra de fallback configurada.';
+        fbContainer.appendChild(emptyP);
       } else {
         fbRules.forEach((r) => {
           const item = document.createElement('div');

@@ -1,13 +1,10 @@
-"""
-routers/realtime.py — Server-Sent Events (SSE) stream for live TokenPulse telemetry.
-Listens to real-time events via EventBus and provides a periodic 5s heartbeat/summary fallback.
-"""
-
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import secrets
+import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
@@ -21,6 +18,37 @@ from services.event_bus import event_bus
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/realtime", tags=["realtime"])
+
+# In-memory single-use ticket store: {ticket: expiry_timestamp}
+_REALTIME_TICKETS: dict[str, float] = {}
+
+
+def create_stream_ticket(ttl_seconds: int = 30) -> str:
+    """Generates a secure, disposable single-use ticket for SSE connection."""
+    ticket = f"ssec_{secrets.token_hex(24)}"
+    now = time.time()
+    # Prune expired tickets
+    expired = [k for k, exp in _REALTIME_TICKETS.items() if exp < now]
+    for k in expired:
+        _REALTIME_TICKETS.pop(k, None)
+    _REALTIME_TICKETS[ticket] = now + ttl_seconds
+    return ticket
+
+
+def validate_and_consume_ticket(ticket: str) -> bool:
+    """Consumes and invalidates a disposable stream ticket. Returns True if valid."""
+    now = time.time()
+    expiry = _REALTIME_TICKETS.pop(ticket, None)
+    if expiry and expiry >= now:
+        return True
+    return False
+
+
+@router.post("/ticket")
+async def request_realtime_ticket():
+    """Generates a single-use ticket (30s) for establishing SSE connection without JWT in query string."""
+    ticket = create_stream_ticket(ttl_seconds=30)
+    return {"ticket": ticket, "expires_in": 30}
 
 
 async def event_generator() -> AsyncGenerator[str, None]:

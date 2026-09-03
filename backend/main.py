@@ -124,7 +124,7 @@ async def add_security_headers(request, call_next):
     response = await call_next(request)
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
@@ -137,6 +137,11 @@ async def add_security_headers(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
@@ -170,13 +175,22 @@ async def jwt_auth_middleware(request, call_next):
     if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
         return await call_next(request)
 
-    # Check JWT token from Authorization header or query parameter (for SSE / direct file downloads)
+    # Check JWT token from Authorization header or disposable ticket for SSE
     token = None
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:].strip()
-    elif request.query_params.get("token"):
-        token = request.query_params.get("token")
+    elif path == "/api/realtime/stream":
+        ticket = request.query_params.get("ticket")
+        if ticket:
+            from routers.realtime import validate_and_consume_ticket
+            if validate_and_consume_ticket(ticket):
+                return await call_next(request)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Ticket de stream SSE inválido ou expirado."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     if token:
         try:

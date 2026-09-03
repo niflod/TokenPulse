@@ -60,6 +60,40 @@ async def test_auth_status_empty_and_created():
 
 
 @pytest.mark.asyncio
+async def test_auth_setup_remote_takeover_blocked(monkeypatch):
+    """Verify that remote callers (non-localhost) without bootstrap token are blocked with 403."""
+    from config import settings
+    monkeypatch.setattr(settings, "admin_bootstrap_token", "super-secret-bootstrap-123")
+
+    transport = httpx.ASGITransport(app=app, client=("198.51.100.25", 54321))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Remote request without token -> 403
+        blocked_res = await client.post(
+            "/api/auth/setup",
+            json={"username": "remotehacker", "password": "securepassword123"},
+        )
+        assert blocked_res.status_code == 403
+        assert "Setup administrativo remoto bloqueado" in blocked_res.text
+
+        # Remote request with invalid token -> 403
+        wrong_res = await client.post(
+            "/api/auth/setup",
+            json={"username": "remotehacker", "password": "securepassword123"},
+            headers={"X-Bootstrap-Token": "wrong-token"},
+        )
+        assert wrong_res.status_code == 403
+
+        # Remote request with correct token -> 200
+        ok_res = await client.post(
+            "/api/auth/setup",
+            json={"username": "validremoteadmin", "password": "securepassword123"},
+            headers={"X-Bootstrap-Token": "super-secret-bootstrap-123"},
+        )
+        assert ok_res.status_code == 200
+        assert ok_res.json()["status"] == "created"
+
+
+@pytest.mark.asyncio
 async def test_auth_setup_conflict():
     """Verify that second setup attempt returns 409 Conflict."""
     transport = httpx.ASGITransport(app=app)
