@@ -81,6 +81,68 @@ X-Admin-Key: <sua-chave-se-configurada>
 
 ---
 
+## 🌐 TokenPulse Gateway (Reverse Proxy Transparente)
+
+O Gateway intercepta chamadas para OpenAI, Anthropic e Gemini, repassando requisições e respostas de forma transparente enquanto captura telemetria (tokens, latência, TTFT, custo estimado e logs de erro).
+
+### 1. Integração com OpenAI Python SDK
+
+Basta configurar o `base_url` para apontar para o TokenPulse Gateway:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/gateway/openai/v1",
+    api_key="sua-chave-openai",  # Se configurada no TokenPulse, qualquer valor funciona
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Olá!"}],
+    stream=True,  # O TokenPulse mede Time-to-First-Token (TTFT) automaticamente
+)
+
+for chunk in response:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+### 2. Integração com cURL (OpenAI & Anthropic)
+
+```bash
+# OpenAI via Gateway
+curl -X POST http://127.0.0.1:8000/gateway/openai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# Anthropic via Gateway
+curl -X POST http://127.0.0.1:8000/gateway/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "max_tokens": 256, "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+### 3. Integração com JavaScript / TypeScript
+
+```typescript
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  baseURL: "http://127.0.0.1:8000/gateway/openai/v1",
+  apiKey: process.env.OPENAI_API_KEY || "dummy-key",
+});
+
+const res = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Qual a capital da França?" }],
+});
+console.log(res.choices[0].message.content);
+```
+
+---
+
 ## 🚀 Como Iniciar
 
 ### 1. Inicialização Rápida (Local)

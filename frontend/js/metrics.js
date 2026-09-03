@@ -8,6 +8,32 @@ const Metrics = {
   _sortColumn: 'requests',
   _sortDirection: 'desc',
 
+  showSkeletonLoading() {
+    const ids = [
+      'val-pct-today', 'val-pct-week', 'val-pct-month',
+      'mini-tokens-today', 'mini-input-tokens', 'mini-output-tokens',
+      'mini-cost-today', 'mini-latency-today', 'mini-error-rate',
+      'proj-burn-rate', 'proj-eta', 'proj-daily-est', 'proj-daily-cost'
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('skeleton');
+    });
+  },
+
+  hideSkeletonLoading() {
+    const ids = [
+      'val-pct-today', 'val-pct-week', 'val-pct-month',
+      'mini-tokens-today', 'mini-input-tokens', 'mini-output-tokens',
+      'mini-cost-today', 'mini-latency-today', 'mini-error-rate',
+      'proj-burn-rate', 'proj-eta', 'proj-daily-est', 'proj-daily-cost'
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('skeleton');
+    });
+  },
+
   /**
    * Render Top 3 Usage Cards (Daily, Weekly, Monthly)
    */
@@ -305,14 +331,38 @@ const Metrics = {
       const strongModel = document.createElement('strong');
       strongModel.textContent = l.model;
       tdModel.appendChild(strongModel);
+      if (l.request_id) {
+        const reqIdSpan = document.createElement('span');
+        reqIdSpan.className = 'font-mono';
+        reqIdSpan.style.cssText = 'display: block; font-size: 10px; color: var(--text-dim); margin-top: 2px;';
+        reqIdSpan.textContent = l.request_id;
+        tdModel.appendChild(reqIdSpan);
+      }
 
       const tdTokens = document.createElement('td');
       tdTokens.className = 'text-right font-mono';
       tdTokens.textContent = Utils.formatTokens(l.total_tokens);
+      if (l.cached_input_tokens) {
+        const cacheTag = document.createElement('span');
+        cacheTag.className = 'badge-tag';
+        cacheTag.style.cssText = 'font-size: 9px; margin-left: 4px; color: var(--color-normal);';
+        cacheTag.textContent = `⚡${Utils.formatTokens(l.cached_input_tokens)}`;
+        cacheTag.title = 'Cached tokens';
+        tdTokens.appendChild(cacheTag);
+      }
 
       const tdLat = document.createElement('td');
       tdLat.className = 'text-right font-mono';
       tdLat.textContent = Utils.formatLatency(l.latency_ms);
+      if (l.time_to_first_token_ms) {
+        const ttftTag = document.createElement('span');
+        ttftTag.className = 'badge-tag';
+        ttftTag.style.cssText = 'font-size: 9px; margin-left: 4px; color: var(--ai-accent); border: 1px solid var(--border-color);';
+        ttftTag.textContent = `TTFT ${Math.round(l.time_to_first_token_ms)}ms`;
+        ttftTag.title = 'Time-to-first-token';
+        tdLat.appendChild(document.createElement('br'));
+        tdLat.appendChild(ttftTag);
+      }
 
       const tdStatus = document.createElement('td');
       tdStatus.className = 'text-center';
@@ -321,6 +371,9 @@ const Metrics = {
       const statusClass = isSuccess ? 'badge-http-200' : (l.status_code === 429 ? 'badge-http-429' : 'badge-http-500');
       badgeStatus.className = `badge-tag ${statusClass}`;
       badgeStatus.textContent = l.status_code ? `${l.status_code}` : '200 OK';
+      if (l.finish_reason) {
+        badgeStatus.title = `Finish reason: ${l.finish_reason}`;
+      }
       tdStatus.appendChild(badgeStatus);
 
       const tdCost = document.createElement('td');

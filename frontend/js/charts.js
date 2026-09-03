@@ -6,22 +6,32 @@ const Charts = {
   _instances: {},
   _currentTimelineMetric: 'requests',
 
+  /** Reads a CSS variable from :root at runtime so charts honor the design system. */
+  _cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  },
+
   _getDarkDefaults() {
+    const textMuted  = this._cssVar('--text-muted')  || '#9AA4B2';
+    const textDim    = this._cssVar('--text-dim')    || '#4D5A6E';
+    const bgCard     = this._cssVar('--bg-card')     || '#0D1118';
+    const borderColor = this._cssVar('--border-color') || '#1B2330';
     return {
       responsive: true,
       maintainAspectRatio: false,
-      color: '#9499ad',
+      color: textMuted,
+      animation: { duration: 300 },
       font: { family: "'Inter', sans-serif", size: 11 },
       plugins: {
         legend: {
           display: true,
-          labels: { color: '#9499ad', boxWidth: 12, padding: 16 },
+          labels: { color: textMuted, boxWidth: 12, padding: 16 },
         },
         tooltip: {
-          backgroundColor: '#1b1e2c',
-          titleColor: '#f3f4f6',
-          bodyColor: '#9499ad',
-          borderColor: '#232738',
+          backgroundColor: bgCard,
+          titleColor: this._cssVar('--text-main') || '#F5F7FA',
+          bodyColor: textMuted,
+          borderColor: borderColor,
           borderWidth: 1,
           padding: 10,
           cornerRadius: 8,
@@ -30,11 +40,11 @@ const Charts = {
       scales: {
         x: {
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#60667d', maxRotation: 0 },
+          ticks: { color: textDim, maxRotation: 0 },
         },
         y: {
           grid: { color: 'rgba(255, 255, 255, 0.04)' },
-          ticks: { color: '#60667d' },
+          ticks: { color: textDim },
           beginAtZero: true,
         },
       },
@@ -59,19 +69,19 @@ const Charts = {
 
     let datasetLabel = 'Requisições';
     let dataValues = timeseries.map((pt) => pt.requests || 0);
-    let borderColor = '#6366f1';
-    let bgColor = 'rgba(99, 102, 241, 0.12)';
+    let borderColor = '#4D8DFF';
+    let bgColor = 'rgba(77, 141, 255, 0.10)';
 
     if (this._currentTimelineMetric === 'tokens') {
       datasetLabel = 'Total de Tokens';
       dataValues = timeseries.map((pt) => pt.totalTokens || 0);
-      borderColor = '#38bdf8';
-      bgColor = 'rgba(56, 189, 248, 0.12)';
+      borderColor = '#8B7CFF';
+      bgColor = 'rgba(139, 124, 255, 0.10)';
     } else if (this._currentTimelineMetric === 'cost') {
       datasetLabel = 'Custo ($ USD)';
       dataValues = timeseries.map((pt) => pt.cost || 0.0);
-      borderColor = '#10b981';
-      bgColor = 'rgba(16, 185, 129, 0.12)';
+      borderColor = '#35D07F';
+      bgColor = 'rgba(53, 208, 127, 0.10)';
     }
 
     if (this._instances[canvasId]) {
@@ -118,7 +128,7 @@ const Charts = {
 
     const labels = byProvider.map((p) => p.provider.toUpperCase());
     const dataValues = byProvider.map((p) => p.requests || 0);
-    const colors = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
+    const colors = ['#4D8DFF', '#F5B942', '#35D07F', '#8B7CFF', '#FF5C6C'];
 
     if (this._instances[canvasId]) {
       const chart = this._instances[canvasId];
@@ -136,7 +146,7 @@ const Charts = {
           {
             data: dataValues.length ? dataValues : [1],
             backgroundColor: colors.slice(0, Math.max(labels.length, 1)),
-            borderColor: '#141620',
+            borderColor: '#080A0F',
             borderWidth: 2,
           },
         ],
@@ -145,10 +155,11 @@ const Charts = {
         responsive: true,
         maintainAspectRatio: false,
         cutout: '68%',
+        animation: { duration: 300 },
         plugins: {
           legend: {
             position: 'bottom',
-            labels: { color: '#9499ad', boxWidth: 10, padding: 14 },
+            labels: { color: this._cssVar('--text-muted') || '#9AA4B2', boxWidth: 10, padding: 14 },
           },
         },
       },
@@ -192,13 +203,13 @@ const Charts = {
           {
             label: 'Input Tokens',
             data: inputData,
-            backgroundColor: '#6366f1',
+            backgroundColor: '#4D8DFF',
             borderRadius: 4,
           },
           {
             label: 'Output Tokens',
             data: outputData,
-            backgroundColor: '#a855f7',
+            backgroundColor: '#8B7CFF',
             borderRadius: 4,
           },
         ],
@@ -238,8 +249,8 @@ const Charts = {
           {
             label: 'Requisições / Hora',
             data: reqData,
-            backgroundColor: 'rgba(16, 185, 129, 0.7)',
-            borderColor: '#10b981',
+            backgroundColor: 'rgba(53, 208, 127, 0.65)',
+            borderColor: '#35D07F',
             borderWidth: 1,
             borderRadius: 4,
           },

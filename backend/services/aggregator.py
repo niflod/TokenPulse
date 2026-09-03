@@ -249,23 +249,36 @@ class AggregatorService:
     ) -> list[dict]:
         """
         Generate hourly aggregated points for the charts.
+        Uses SQL GROUP BY for O(1) memory regardless of data volume.
         """
         now = datetime.now(timezone.utc)
         start_time = now - timedelta(hours=hours)
 
+        # SQLite strftime groups by hour-truncated UTC timestamp
+        hour_bucket = func.strftime("%Y-%m-%dT%H:00:00Z", RequestLog.timestamp)
+
         q = (
             select(
-                RequestLog.timestamp,
-                RequestLog.input_tokens,
-                RequestLog.output_tokens,
-                RequestLog.total_tokens,
-                RequestLog.cost_total,
-                RequestLog.latency_ms,
-                RequestLog.status_code,
+                hour_bucket.label("bucket"),
+                func.count(RequestLog.id).label("requests"),
+                func.sum(func.coalesce(RequestLog.input_tokens, 0)).label("input_tokens"),
+                func.sum(func.coalesce(RequestLog.output_tokens, 0)).label("output_tokens"),
+                func.sum(func.coalesce(RequestLog.total_tokens, 0)).label("total_tokens"),
+                func.sum(func.coalesce(RequestLog.cost_total, 0.0)).label("cost"),
+                func.avg(RequestLog.latency_ms).label("avg_latency"),
+                func.sum(
+                    case(
+                        (RequestLog.status_code >= 400, 1),
+                        (RequestLog.status_code.is_(None), 1),
+                        else_=0,
+                    )
+                ).label("errors"),
             )
             .where(RequestLog.timestamp >= start_time)
-            .order_by(RequestLog.timestamp.asc())
+            .group_by(hour_bucket)
+            .order_by(hour_bucket)
         )
+
         if provider:
             q = q.where(RequestLog.provider == provider)
         if model:
@@ -273,65 +286,34 @@ class AggregatorService:
 
         rows = (await db.execute(q)).all()
 
-        # Bucket by hour
-        buckets: Dict[str, dict] = {}
-        # Pre-populate all hours in range
+        # Build lookup from SQL results
+        sql_buckets: Dict[str, dict] = {}
+        for r in rows:
+            sql_buckets[r.bucket] = {
+                "requests": r.requests or 0,
+                "inputTokens": int(r.input_tokens or 0),
+                "outputTokens": int(r.output_tokens or 0),
+                "totalTokens": int(r.total_tokens or 0),
+                "cost": round(float(r.cost), 4) if r.cost else None,
+                "latency": round(float(r.avg_latency), 1) if r.avg_latency else None,
+                "errors": r.errors or 0,
+            }
+
+        # Pre-populate all hours so chart has complete X-axis (zero-filled)
+        result = []
         for h in range(hours):
             t = start_time + timedelta(hours=h)
             bucket_key = t.strftime("%Y-%m-%dT%H:00:00Z")
-            buckets[bucket_key] = {
-                "timestamp": bucket_key,
+            entry = sql_buckets.get(bucket_key, {
                 "requests": 0,
                 "inputTokens": 0,
                 "outputTokens": 0,
                 "totalTokens": 0,
-                "cost": 0.0,
-                "latencies": [],
+                "cost": None,
+                "latency": None,
                 "errors": 0,
-            }
-
-        for r in rows:
-            ts = r.timestamp
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            bucket_key = ts.strftime("%Y-%m-%dT%H:00:00Z")
-            if bucket_key not in buckets:
-                buckets[bucket_key] = {
-                    "timestamp": bucket_key,
-                    "requests": 0,
-                    "inputTokens": 0,
-                    "outputTokens": 0,
-                    "totalTokens": 0,
-                    "cost": 0.0,
-                    "latencies": [],
-                    "errors": 0,
-                }
-            b = buckets[bucket_key]
-            b["requests"] += 1
-            b["inputTokens"] += (r.input_tokens or 0)
-            b["outputTokens"] += (r.output_tokens or 0)
-            b["totalTokens"] += (r.total_tokens or 0)
-            b["cost"] += (r.cost_total or 0.0)
-            if r.latency_ms:
-                b["latencies"].append(r.latency_ms)
-            if r.status_code and r.status_code >= 400:
-                b["errors"] += 1
-
-        result = []
-        for key in sorted(buckets.keys()):
-            b = buckets[key]
-            lats = b["latencies"]
-            avg_lat = round(sum(lats) / len(lats), 1) if lats else None
-            result.append({
-                "timestamp": b["timestamp"],
-                "requests": b["requests"],
-                "inputTokens": b["inputTokens"],
-                "outputTokens": b["outputTokens"],
-                "totalTokens": b["totalTokens"],
-                "cost": round(b["cost"], 4) if b["cost"] > 0 else None,
-                "latency": avg_lat,
-                "errors": b["errors"],
             })
+            result.append({"timestamp": bucket_key, **entry})
 
         return result
 

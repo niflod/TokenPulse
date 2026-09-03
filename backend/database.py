@@ -87,10 +87,30 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Create all tables defined in ORM models."""
-    # Import models here so Base.metadata is populated before create_all
+    """Create all tables defined in ORM models and migrate columns if needed."""
     import models  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate_sqlite_columns(sync_conn):
+            from sqlalchemy import text
+            res = sync_conn.execute(text("PRAGMA table_info(request_logs)"))
+            existing_cols = {row[1] for row in res.fetchall()}
+            new_cols = [
+                ("provider_request_id", "VARCHAR(256)"),
+                ("time_to_first_token_ms", "FLOAT"),
+                ("stream_duration_ms", "FLOAT"),
+                ("cached_input_tokens", "INTEGER"),
+                ("reasoning_tokens", "INTEGER"),
+                ("finish_reason", "VARCHAR(64)"),
+            ]
+            for col_name, col_type in new_cols:
+                if col_name not in existing_cols:
+                    sync_conn.execute(text(f"ALTER TABLE request_logs ADD COLUMN {col_name} {col_type}"))
+                    logger.info("Migrated SQLite: added column %s to request_logs", col_name)
+
+        if "sqlite" in settings.database_url:
+            await conn.run_sync(_migrate_sqlite_columns)
+
     logger.info("Database tables initialised.")

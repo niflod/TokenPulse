@@ -15,8 +15,8 @@
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Style -->
-  <link rel="stylesheet" href="css/style.css" />
+  <!-- Style with cache buster -->
+  <link rel="stylesheet" href="css/style.css?v=2.0.0" />
 </head>
 <body>
 
@@ -95,11 +95,21 @@
       <!-- TOPBAR -->
       <header class="topbar">
         <div class="topbar-left">
+          <!-- Hamburger: visible on mobile only -->
+          <button id="btn-hamburger" class="btn-hamburger" aria-label="Abrir menu" title="Menu">
+            <i data-lucide="menu"></i>
+          </button>
           <h1 id="page-title" class="page-heading">Dashboard de Uso</h1>
           <span id="live-indicator" class="badge-live"><span class="pulse-dot"></span> AO VIVO</span>
         </div>
 
         <div class="topbar-right">
+          <!-- SSE Connection Indicator -->
+          <div id="sse-indicator" class="sse-indicator" title="Status da conexão em tempo real">
+            <span class="sse-dot"></span>
+            <span id="sse-status-text">CONECTANDO</span>
+          </div>
+
           <!-- Last update timestamp -->
           <div class="time-meta">
             <span class="meta-label">Última atualização:</span>
@@ -143,6 +153,16 @@
         
         <!-- ACTIVE ANOMALIES & ALERTS BANNER -->
         <div id="anomalies-container" class="alerts-stream hidden"></div>
+
+        <!-- DASHBOARD ERROR STATE BANNER -->
+        <div id="dashboard-error-banner" class="card-error-state hidden" style="margin-bottom: 20px; border: 1px solid var(--color-critical); background: var(--color-critical-bg); padding: 16px 20px; border-radius: var(--radius-md); display: flex; align-items: center; gap: 14px;">
+          <i data-lucide="alert-octagon" style="color: var(--color-critical); width: 22px; height: 22px; flex-shrink: 0;"></i>
+          <div style="flex: 1;">
+            <strong style="color: var(--color-critical); font-size: 13px; display: block;">Falha na Conexão de Telemetria</strong>
+            <p id="dashboard-error-msg" style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">Não foi possível sincronizar as métricas com o servidor.</p>
+          </div>
+          <button id="btn-retry-dashboard" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Tentar Novamente</button>
+        </div>
 
         <!-- 1. USAGE CARDS (HOJE, SEMANA, MÊS) -->
         <div class="section-title-row">
@@ -650,15 +670,15 @@
   <!-- TOAST NOTIFICATIONS CONTAINER -->
   <div id="toast-container" class="toast-container"></div>
 
-  <!-- Application Scripts -->
-  <script src="js/utils.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/alerts.js"></script>
-  <script src="js/charts.js"></script>
-  <script src="js/metrics.js"></script>
-  <script src="js/providers.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/app.js"></script>
+  <!-- Application Scripts with cache buster -->
+  <script src="js/utils.js?v=2.1.0"></script>
+  <script src="js/storage.js?v=2.1.0"></script>
+  <script src="js/api.js?v=2.1.0"></script>
+  <script src="js/alerts.js?v=2.1.0"></script>
+  <script src="js/charts.js?v=2.1.0"></script>
+  <script src="js/metrics.js?v=2.1.0"></script>
+  <script src="js/providers.js?v=2.1.0"></script>
+  <script src="js/export.js?v=2.1.0"></script>
+  <script src="js/app.js?v=2.1.0"></script>
 </body>
 </html>

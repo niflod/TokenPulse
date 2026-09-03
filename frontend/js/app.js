@@ -46,14 +46,28 @@ const App = {
   },
 
   _initSSE() {
-    if (this._isDemoMode) return;
+    if (this._isDemoMode) {
+      this._setSseStatus('disconnected', 'DEMO');
+      return;
+    }
     if (this._eventSource) {
       this._eventSource.close();
       this._eventSource = null;
     }
+    this._setSseStatus(null, 'CONECTANDO');
     this._eventSource = API.connectRealtime(
       (data) => {
-        if (data.type === 'metrics_tick' && this._currentPage === 'dashboard' && !this._isDemoMode) {
+        this._setSseStatus('connected', 'AO VIVO');
+        if ((data.type === 'request.completed' || data.type === 'request.failed') && !this._isDemoMode) {
+          if (this._currentPage === 'dashboard') {
+            this.refresh();
+          } else if (this._currentPage === 'logs') {
+            this._loadLogs();
+          }
+          if (data.type === 'request.completed' && data.data) {
+            Alerts.toast(`⚡ Telemetria recebida: ${data.data.provider?.toUpperCase()} • ${data.data.model} (${data.data.latency_ms}ms)`, 'info', 2500);
+          }
+        } else if (data.type === 'metrics_tick' && this._currentPage === 'dashboard' && !this._isDemoMode) {
           if (data.summary) {
             Metrics.renderUsageCards(data.summary, this._latestSummary?.limits || {});
             Metrics.renderMiniCards(data.summary.today);
@@ -65,9 +79,19 @@ const App = {
         }
       },
       () => {
+        this._setSseStatus('disconnected', 'DESCONECTADO');
         // Fallback gracefully to timer polling
       }
     );
+  },
+
+  _setSseStatus(state, label) {
+    const el = document.getElementById('sse-indicator');
+    const txt = document.getElementById('sse-status-text');
+    if (!el) return;
+    el.classList.remove('connected', 'disconnected');
+    if (state) el.classList.add(state);
+    if (txt) txt.textContent = label;
   },
 
   updateDemoBanner() {
@@ -126,6 +150,9 @@ const App = {
       }
     });
 
+    // Close mobile sidebar if open
+    document.getElementById('sidebar')?.classList.remove('open');
+
     // Update Topbar Heading
     const titleEl = document.getElementById('page-title');
     const headings = {
@@ -180,17 +207,33 @@ const App = {
     let timeseries;
     let anomalies;
 
+    const errBanner = document.getElementById('dashboard-error-banner');
+    const errMsg = document.getElementById('dashboard-error-msg');
+
     if (this._isDemoMode) {
+      if (errBanner) errBanner.classList.add('hidden');
       const demo = await API.getDemoData();
       summary = demo.data || {};
       timeseries = summary.timeseries || [];
       anomalies = summary.anomalies || [];
     } else {
+      Metrics.showSkeletonLoading();
       const [sumRes, timeRes, anomRes] = await Promise.all([
         API.getSummary(provider),
-        API.getTimeseries(provider, 24),
+        API.getTimeseries(provider, null, 24),
         API.getAnomalies(),
       ]);
+      Metrics.hideSkeletonLoading();
+
+      if (sumRes.error) {
+        if (errBanner) {
+          errBanner.classList.remove('hidden');
+          if (errMsg) errMsg.textContent = sumRes.error.message || 'Falha ao conectar com o backend.';
+        }
+      } else {
+        if (errBanner) errBanner.classList.add('hidden');
+      }
+
       summary = sumRes.data || {};
       timeseries = timeRes.data || [];
       anomalies = anomRes.data || [];
@@ -353,6 +396,18 @@ const App = {
    * Bind DOM Events
    */
   _bindEvents() {
+    // Mobile Hamburger Menu
+    document.getElementById('btn-hamburger')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('sidebar')?.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar && !sidebar.contains(e.target) && !e.target.closest('#btn-hamburger')) {
+        sidebar.classList.remove('open');
+      }
+    });
+
     // Navigation items
     document.querySelectorAll('.nav-item').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -361,8 +416,9 @@ const App = {
       });
     });
 
-    // Refresh Button
+    // Refresh Button & Retry Button
     document.getElementById('btn-refresh')?.addEventListener('click', () => this.refresh());
+    document.getElementById('btn-retry-dashboard')?.addEventListener('click', () => this.refresh());
 
     // Demo Mode Toggles
     document.getElementById('btn-toggle-demo')?.addEventListener('click', () => {

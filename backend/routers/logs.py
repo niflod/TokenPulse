@@ -52,6 +52,12 @@ class RequestLogOut(BaseModel):
     error_message: Optional[str] = None
     cost_total: Optional[float] = None
     request_id: Optional[str] = None
+    time_to_first_token_ms: Optional[float] = None
+    stream_duration_ms: Optional[float] = None
+    cached_input_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
+    finish_reason: Optional[str] = None
+    provider_request_id: Optional[str] = None
 
 
 @router.get("")
@@ -98,6 +104,12 @@ async def get_logs(
             error_message=r.error_message,
             cost_total=round(r.cost_total, 4) if r.cost_total is not None else None,
             request_id=r.request_id,
+            time_to_first_token_ms=r.time_to_first_token_ms,
+            stream_duration_ms=r.stream_duration_ms,
+            cached_input_tokens=r.cached_input_tokens,
+            reasoning_tokens=r.reasoning_tokens,
+            finish_reason=r.finish_reason,
+            provider_request_id=r.provider_request_id,
         )
         for r in rows
     ]
@@ -154,3 +166,20 @@ async def clear_logs(
         )
     await db.execute(delete(RequestLog))
     return {"message": "Todos os logs foram apagados com sucesso."}
+
+
+@router.post("/prune", dependencies=[Depends(require_admin)])
+async def prune_old_logs(
+    days: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    """Prune logs older than configured retention period (Requisito 35)."""
+    from datetime import timedelta
+    from config import settings
+
+    retention_days = days or settings.log_retention_days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    stmt = delete(RequestLog).where(RequestLog.timestamp < cutoff)
+    res = await db.execute(stmt)
+    return {"status": "pruned", "retention_days": retention_days, "deleted_count": res.rowcount}
+

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -79,9 +80,18 @@ async def lifespan(app: FastAPI):
                 aggregator.register_provider(name, api_key=key)
                 logger.info("Loaded provider '%s' from environment variable.", name)
 
-    logger.info("AI Usage Dashboard backend ready on http://%s:%s", settings.host, settings.port)
-    yield
-    logger.info("Shutting down AI Usage Dashboard backend.")
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    timeout = httpx.Timeout(
+        connect=settings.gateway_connect_timeout,
+        read=settings.gateway_read_timeout,
+        write=30.0,
+        pool=10.0,
+    )
+    async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
+        app.state.http_client = client
+        logger.info("TokenPulse backend ready on http://%s:%s", settings.host, settings.port)
+        yield
+        logger.info("Shutting down TokenPulse backend.")
 
 
 app = FastAPI(
@@ -97,7 +107,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "X-Admin-Key", "Authorization"],
 )
 
 
@@ -140,7 +150,7 @@ async def ping():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "version": "1.0.0",
+        "version": "1.1.0",
     }
 
 

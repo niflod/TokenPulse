@@ -95,8 +95,17 @@ class RequestLog(Base):
     cost_input: Mapped[float | None] = mapped_column(Float, nullable=True)
     cost_output: Mapped[float | None] = mapped_column(Float, nullable=True)
     cost_total: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # Provider-assigned request ID for cross-referencing
-    request_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # TokenPulse internal unique correlation ID
+    request_id: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    # Upstream provider's native request ID
+    provider_request_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # Advanced telemetry & Streaming metrics
+    time_to_first_token_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stream_duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AlertConfig(Base):

@@ -131,3 +131,24 @@ def validate_provider_base_url(provider: str, base_url: Optional[str]) -> Option
         )
 
     return cleaned_url
+
+
+import re
+
+SENSITIVE_PATTERNS = [
+    re.compile(r"(sk-[a-zA-Z0-9_\-]{16,})", re.IGNORECASE),
+    re.compile(r"(AIza[0-9A-Za-z\-_]{30,})", re.IGNORECASE),
+    re.compile(r"(Bearer\s+)([a-zA-Z0-9_\-\.]{16,})", re.IGNORECASE),
+    re.compile(r"((?:api[_-]?key|secret|token|password|auth)[\"']?\s*[:=]\s*[\"']?)([^\s\"',&]+)", re.IGNORECASE),
+]
+
+
+def redact_sensitive_text(text: Optional[str]) -> Optional[str]:
+    """Sanitizes sensitive API keys and tokens from strings and exception traces."""
+    if not text:
+        return text
+    redacted = text
+    for pattern in SENSITIVE_PATTERNS:
+        redacted = pattern.sub(r"[REDACTED]", redacted)
+    return redacted
+

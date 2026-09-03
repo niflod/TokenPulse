@@ -56,6 +56,14 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000",
     ]
 
+    # TokenPulse Gateway Settings
+    gateway_enabled: bool = True
+    gateway_connect_timeout: float = 10.0
+    gateway_read_timeout: float = 120.0
+    max_request_body_size: int = 10 * 1024 * 1024  # 10 MB
+    telemetry_enabled: bool = True
+    log_retention_days: int = 90  # days
+
     @field_validator("secret_key")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

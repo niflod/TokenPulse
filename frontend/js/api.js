@@ -101,6 +101,10 @@ const API = {
     return this._request(`/api/metrics/summary${qs}`);
   },
 
+  async getSummary(provider = null, model = null) {
+    return this.getMetricsSummary(provider, model);
+  },
+
   async getTimeseries(provider = null, model = null, hours = 24) {
     const params = new URLSearchParams({ hours });
     if (provider) params.append('provider', provider);

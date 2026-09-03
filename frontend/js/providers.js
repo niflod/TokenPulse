@@ -81,14 +81,32 @@ const Providers = {
       keyStatus.style.fontSize = '11px';
       keyStatus.style.color = 'var(--text-dim)';
       keyStatus.style.marginTop = '2px';
-      keyStatus.textContent = p.has_api_key ? 'Chave: ••••••••' : 'Chave: Não configurada';
+      keyStatus.textContent = p.has_api_key ? 'Chave: •••••••• (Criptografada via Fernet)' : 'Chave: Não configurada';
       if (!p.has_api_key) {
         keyStatus.className = 'text-warning';
       }
 
+      const gwBase = p.name === 'openai'
+        ? `${window.location.origin}/gateway/openai/v1`
+        : `${window.location.origin}/gateway/${p.name}`;
+
+      const gwInfo = document.createElement('div');
+      gwInfo.style.fontSize = '11px';
+      gwInfo.style.fontFamily = 'var(--font-mono)';
+      gwInfo.style.color = 'var(--accent)';
+      gwInfo.style.marginTop = '4px';
+      gwInfo.textContent = `Gateway: ${gwBase}`;
+      gwInfo.title = 'Clique para copiar a URL do Gateway';
+      gwInfo.style.cursor = 'pointer';
+      gwInfo.addEventListener('click', () => {
+        navigator.clipboard.writeText(gwBase);
+        Alerts.toast(`URL do Gateway copiada: ${gwBase}`, 'info', 2000);
+      });
+
       leftCol.appendChild(strong);
       leftCol.appendChild(badge);
       leftCol.appendChild(keyStatus);
+      leftCol.appendChild(gwInfo);
 
       const rightCol = document.createElement('div');
       rightCol.className = 'flex-row gap-2';
