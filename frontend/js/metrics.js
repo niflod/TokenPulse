@@ -331,6 +331,14 @@ const Metrics = {
       const strongModel = document.createElement('strong');
       strongModel.textContent = l.model;
       tdModel.appendChild(strongModel);
+      if (l.fallback_triggered) {
+        const fbBadge = document.createElement('span');
+        fbBadge.className = 'badge-tag text-warning';
+        fbBadge.style.cssText = 'font-size: 10px; margin-left: 6px; border: 1px solid var(--warning); padding: 1px 4px; border-radius: 4px;';
+        fbBadge.textContent = '⚡ Fallback';
+        fbBadge.title = `Fallback de ${l.original_provider || '?'}/${l.original_model || '?'} para ${l.provider}/${l.model} (${l.fallback_reason || 'automático'})`;
+        tdModel.appendChild(fbBadge);
+      }
       if (l.request_id) {
         const reqIdSpan = document.createElement('span');
         reqIdSpan.className = 'font-mono';

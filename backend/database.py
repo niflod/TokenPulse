@@ -109,6 +109,10 @@ async def init_db() -> None:
                 ("cached_input_tokens", "INTEGER"),
                 ("reasoning_tokens", "INTEGER"),
                 ("finish_reason", "VARCHAR(64)"),
+                ("fallback_triggered", "BOOLEAN DEFAULT 0"),
+                ("original_provider", "VARCHAR(64)"),
+                ("original_model", "VARCHAR(128)"),
+                ("fallback_reason", "VARCHAR(64)"),
             ]
             for col_name, col_type in new_cols:
                 if col_name not in existing_cols:
@@ -123,5 +127,22 @@ async def init_db() -> None:
 
         if "sqlite" in settings.database_url:
             await conn.run_sync(_migrate_sqlite_columns)
+
+    # Seed default fallback rules if empty
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        from models import FallbackRule
+        res = await session.execute(select(FallbackRule).limit(1))
+        if not res.scalar_one_or_none():
+            default_rules = [
+                FallbackRule(source_provider="openai", source_model="gpt-4o", target_provider="groq", target_model="llama-3.3-70b-versatile", priority=1),
+                FallbackRule(source_provider="openai", source_model="gpt-4o", target_provider="mistral", target_model="mistral-large-latest", priority=2),
+                FallbackRule(source_provider="openai", source_model="gpt-4o-mini", target_provider="groq", target_model="llama-3.1-8b-instant", priority=1),
+                FallbackRule(source_provider="openai", source_model="gpt-4o-mini", target_provider="mistral", target_model="mistral-small-latest", priority=2),
+                FallbackRule(source_provider="anthropic", source_model="claude-3-5-sonnet-20241022", target_provider="groq", target_model="llama-3.3-70b-versatile", priority=1),
+            ]
+            session.add_all(default_rules)
+            await session.commit()
+            logger.info("Seeded %d default fallback rules.", len(default_rules))
 
     logger.info("Database tables initialised.")

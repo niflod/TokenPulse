@@ -668,6 +668,74 @@
             </div>
           </div>
 
+          <!-- 4. REGRAS DE FALLBACK & ALTA DISPONIBILIDADE -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="shuffle" class="text-accent"></i>
+                <h3 class="card-title">Regras de Fallback & Alta Disponibilidade</h3>
+              </div>
+            </div>
+            <p class="form-hint" style="margin-bottom: 16px;">
+              Redirecione requisições automaticamente quando o provedor primário sofrer erros 429, 5xx, timeouts ou atingir o orçamento mensal.
+            </p>
+
+            <form id="form-create-fallback-rule" class="form-grid">
+              <div class="form-group">
+                <label for="input-fb-source-provider">Provedor de Origem</label>
+                <select id="input-fb-source-provider" class="form-control" required>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="groq">Groq</option>
+                  <option value="mistral">Mistral AI</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="input-fb-source-model">Modelo de Origem</label>
+                <input type="text" id="input-fb-source-model" class="form-control" placeholder="ex: gpt-4o ou *" required />
+              </div>
+
+              <div class="form-group">
+                <label for="input-fb-target-provider">Provedor de Destino (Fallback)</label>
+                <select id="input-fb-target-provider" class="form-control" required>
+                  <option value="groq">Groq</option>
+                  <option value="mistral">Mistral AI</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="input-fb-target-model">Modelo de Destino</label>
+                <input type="text" id="input-fb-target-model" class="form-control" placeholder="ex: llama-3.3-70b-versatile" required />
+              </div>
+
+              <div class="form-group">
+                <label for="input-fb-priority">Prioridade (Menor = Primeiro)</label>
+                <input type="number" id="input-fb-priority" class="form-control" value="1" min="1" max="100" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">
+                  <i data-lucide="plus-circle"></i>
+                  <span>Adicionar Regra</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h4 class="subsection-title">Regras de Fallback Ativas</h4>
+            <div id="fallback-rules-list" class="configured-providers-list">
+              <!-- Populado via JS -->
+            </div>
+          </div>
+
           <!-- 4. PREFERÊNCIAS GERAIS -->
           <div class="card settings-card">
             <div class="card-header">

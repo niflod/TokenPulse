@@ -414,6 +414,63 @@ const App = {
       }
     }
 
+    // Render Fallback Rules
+    const fbContainer = document.getElementById('fallback-rules-list');
+    if (fbContainer) {
+      fbContainer.innerHTML = '';
+      const { data: fbRules } = await API.getFallbackRules();
+      if (!fbRules || fbRules.length === 0) {
+        fbContainer.innerHTML = '<p class="text-muted text-sm" style="padding: 8px 0;">Nenhuma regra de fallback configurada.</p>';
+      } else {
+        fbRules.forEach((r) => {
+          const item = document.createElement('div');
+          item.className = 'configured-provider-item';
+
+          const left = document.createElement('div');
+          const strong = document.createElement('strong');
+          strong.textContent = `${r.source_provider}/${r.source_model} ➔ ${r.target_provider}/${r.target_model}`;
+
+          const badge = document.createElement('span');
+          badge.className = r.enabled ? 'badge-tag' : 'badge-tag text-muted';
+          badge.style.marginLeft = '8px';
+          badge.textContent = r.enabled ? `Prioridade ${r.priority}` : 'Desabilitada';
+
+          left.appendChild(strong);
+          left.appendChild(badge);
+
+          const actions = document.createElement('div');
+          actions.className = 'flex-row gap-2';
+
+          const btnToggle = document.createElement('button');
+          btnToggle.type = 'button';
+          btnToggle.className = 'btn btn-secondary btn-sm';
+          btnToggle.textContent = r.enabled ? 'Desativar' : 'Ativar';
+          btnToggle.addEventListener('click', async () => {
+            await API.toggleFallbackRule(r.id);
+            this._loadSettings();
+          });
+
+          const btnDel = document.createElement('button');
+          btnDel.type = 'button';
+          btnDel.className = 'btn btn-danger btn-sm';
+          btnDel.textContent = 'Excluir';
+          btnDel.addEventListener('click', async () => {
+            if (confirm(`Excluir regra de fallback ${r.source_model} ➔ ${r.target_model}?`)) {
+              await API.deleteFallbackRule(r.id);
+              Alerts.toast('Regra de fallback excluída.', 'info');
+              this._loadSettings();
+            }
+          });
+
+          actions.appendChild(btnToggle);
+          actions.appendChild(btnDel);
+          item.appendChild(left);
+          item.appendChild(actions);
+          fbContainer.appendChild(item);
+        });
+      }
+    }
+
     if (window.lucide) lucide.createIcons();
   },
 
@@ -691,6 +748,37 @@ const App = {
       prompt('COPIE SUA CHAVE VIRTUAL TOKENPULSE (Não será exibida novamente):', fullKey);
       Alerts.toast('Chave virtual emitida com sucesso!', 'success');
       document.getElementById('input-client-key-name').value = '';
+      this._loadSettings();
+    });
+
+    // Settings: Create Fallback Rule
+    document.getElementById('form-create-fallback-rule')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const source_provider = document.getElementById('input-fb-source-provider')?.value?.trim();
+      const source_model = document.getElementById('input-fb-source-model')?.value?.trim();
+      const target_provider = document.getElementById('input-fb-target-provider')?.value?.trim();
+      const target_model = document.getElementById('input-fb-target-model')?.value?.trim();
+      const priority = parseInt(document.getElementById('input-fb-priority')?.value, 10) || 1;
+
+      if (!source_provider || !source_model || !target_provider || !target_model) return;
+
+      const res = await API.createFallbackRule({
+        source_provider,
+        source_model,
+        target_provider,
+        target_model,
+        priority,
+        enabled: true,
+      });
+
+      if (res.error) {
+        Alerts.toast(res.error.message || 'Erro ao criar regra de fallback.', 'error');
+        return;
+      }
+
+      Alerts.toast('Regra de fallback criada com sucesso!', 'success');
+      document.getElementById('input-fb-source-model').value = '';
+      document.getElementById('input-fb-target-model').value = '';
       this._loadSettings();
     });
 

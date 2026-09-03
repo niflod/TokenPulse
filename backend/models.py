@@ -108,6 +108,12 @@ class RequestLog(Base):
     reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Failover & Fallback metadata
+    fallback_triggered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    original_provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    original_model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    fallback_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
 
 class AlertConfig(Base):
     """Configures thresholds for anomaly / usage alerts."""
@@ -168,4 +174,21 @@ class ClientApiKey(Base):
     )
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class FallbackRule(Base):
+    """Model failover routing rule when primary provider/model fails."""
+
+    __tablename__ = "fallback_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    target_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
     )

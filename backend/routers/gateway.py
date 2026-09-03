@@ -143,11 +143,11 @@ async def ingest_telemetry(data: TelemetryEvent, db: AsyncSession = Depends(get_
     }
 
 
-async def _check_provider_budget(provider: str) -> None:
-    """Blocks requests if provider consumption exceeds configured monthly budget."""
+async def _is_provider_budget_exceeded(provider: str) -> tuple[bool, float, float]:
+    """Returns (exceeded, total_spent, budget)."""
     budget = getattr(settings, "provider_monthly_budget", None)
     if not budget or budget <= 0:
-        return
+        return False, 0.0, 0.0
 
     month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     async with AsyncSessionLocal() as db:
@@ -156,12 +156,25 @@ async def _check_provider_budget(provider: str) -> None:
             RequestLog.timestamp >= month_start,
         )
         total_spent = (await db.execute(q)).scalar() or 0.0
+        return total_spent >= budget, total_spent, budget
 
-        if total_spent >= budget:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Orçamento mensal do provedor '{provider}' excedido (${round(total_spent, 2)} / ${budget:.2f}). Requisições bloqueadas preventivamente.",
-            )
+
+async def _get_fallback_targets(source_provider: str, source_model: str) -> list[tuple[str, str]]:
+    """Returns list of (target_provider, target_model) ordered by priority."""
+    from models import FallbackRule
+    async with AsyncSessionLocal() as db:
+        stmt = select(FallbackRule).where(
+            FallbackRule.source_provider == source_provider.lower(),
+            FallbackRule.enabled == True,
+        ).order_by(FallbackRule.priority)
+        rules = (await db.execute(stmt)).scalars().all()
+        targets: list[tuple[str, str]] = []
+        for r in rules:
+            if r.source_model == source_model or r.source_model == "*":
+                pair = (r.target_provider.lower().strip(), r.target_model.strip())
+                if pair not in targets:
+                    targets.append(pair)
+        return targets
 
 
 async def _resolve_provider_credentials(provider: str, client_auth_header: Optional[str]) -> tuple[Optional[str], str]:
@@ -263,6 +276,10 @@ async def _persist_gateway_telemetry(
     provider_request_id: Optional[str],
     tokenpulse_request_id: str,
     error_msg: Optional[str] = None,
+    fallback_triggered: bool = False,
+    original_provider: Optional[str] = None,
+    original_model: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
 ) -> None:
     """Saves telemetry asynchronously and emits event bus notification."""
     if not settings.telemetry_enabled:
@@ -292,6 +309,10 @@ async def _persist_gateway_telemetry(
                 cached_input_tokens=cached_tokens,
                 reasoning_tokens=reasoning_tokens,
                 finish_reason=finish_reason,
+                fallback_triggered=fallback_triggered,
+                original_provider=original_provider,
+                original_model=original_model,
+                fallback_reason=fallback_reason,
             )
             db.add(log_entry)
             await db.commit()
@@ -356,13 +377,7 @@ async def _proxy_request(
             headers={"Retry-After": str(retry_after)},
         )
 
-    # 3. Monthly Financial Budget Cap Check
-    await _check_provider_budget(clean_provider)
-
-    tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
-    start_time = time.perf_counter()
-
-    # Read and inspect body
+    # 3. Monthly Financial Budget Cap Check & Fallback Candidates Setup
     body = await request.body()
     if len(body) > settings.max_request_body_size:
         raise HTTPException(
@@ -382,47 +397,49 @@ async def _proxy_request(
         except Exception:
             pass
 
-    # Resolve credentials and target URL
+    # Retrieve fallback targets for this provider and model
+    fallback_targets = await _get_fallback_targets(clean_provider, model_name)
+
+    # Check budget for primary provider
+    primary_budget_exceeded, total_spent, budget = await _is_provider_budget_exceeded(clean_provider)
+
+    candidates: list[dict] = []
+    if not primary_budget_exceeded:
+        candidates.append({
+            "provider": clean_provider,
+            "model": model_name,
+            "fallback_reason": None,
+        })
+    elif fallback_targets:
+        logger.info(
+            "Provider %s exceeded budget ($%.2f / $%.2f); routing directly to fallback targets",
+            clean_provider, total_spent, budget
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Orçamento mensal do provedor '{clean_provider}' excedido (${round(total_spent, 2)} / ${budget:.2f}). Nenhuma regra de fallback configurada.",
+        )
+
+    # Add eligible fallback targets whose budget is not exceeded
+    for target_prov, target_mod in fallback_targets:
+        t_exceeded, _, _ = await _is_provider_budget_exceeded(target_prov)
+        if not t_exceeded:
+            candidates.append({
+                "provider": target_prov,
+                "model": target_mod,
+                "fallback_reason": "budget_cap" if primary_budget_exceeded else None,
+            })
+
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Orçamento mensal do provedor '{clean_provider}' excedido e todos os alvos de fallback também ultrapassaram o teto.",
+        )
+
+    tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
+    start_time = time.perf_counter()
     client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
-    api_key, base_url = await _resolve_provider_credentials(clean_provider, client_auth)
-
-    # Normalize path
-    target_path = subpath.lstrip("/")
-    if clean_provider == "ollama":
-        if not target_path.startswith("v1/") and not target_path.startswith("api/"):
-            target_path = f"v1/{target_path}"
-        upstream_url = f"{base_url.rstrip('/')}/{target_path}"
-    elif clean_provider in ("openai", "groq", "mistral"):
-        if not target_path.startswith("v1/"):
-            target_path = f"v1/{target_path}"
-        upstream_url = f"{base_url.rstrip('/')}/{target_path}"
-    elif clean_provider in ("anthropic", "gemini"):
-        upstream_url = f"{base_url.rstrip('/')}/{target_path}"
-
-    # Build upstream query params
-    query_params = dict(request.query_params)
-    if clean_provider == "gemini" and api_key and "key" not in query_params:
-        query_params["key"] = api_key
-
-    # Prepare sanitized upstream headers
-    out_headers: Dict[str, str] = {}
-    for k, v in request.headers.items():
-        if k.lower() not in HOP_BY_HOP_HEADERS:
-            out_headers[k] = v
-
-    # Prevent leakage of TokenPulse virtual client key upstream
-    if "authorization" in out_headers and "tp_live_" in out_headers["authorization"]:
-        out_headers.pop("authorization", None)
-
-    if clean_provider in ("openai", "groq", "mistral", "ollama"):
-        if api_key:
-            out_headers["authorization"] = f"Bearer {api_key}"
-        else:
-            out_headers.pop("authorization", None)
-    elif clean_provider == "anthropic" and api_key:
-        out_headers["x-api-key"] = api_key
-        if "anthropic-version" not in out_headers:
-            out_headers["anthropic-version"] = "2023-06-01"
 
     # Fetch client from app.state or fallback
     client: httpx.AsyncClient = getattr(request.app.state, "http_client", None)
@@ -432,175 +449,282 @@ async def _proxy_request(
         own_client = True
 
     try:
-        upstream_req = client.build_request(
-            method=request.method,
-            url=upstream_url,
-            params=query_params,
-            headers=out_headers,
-            content=body,
-        )
+        for i, cand in enumerate(candidates):
+            is_last = (i == len(candidates) - 1)
+            curr_prov = cand["provider"]
+            curr_mod = cand["model"]
+            fb_reason = cand.get("fallback_reason")
 
-        if not is_streaming:
-            # -----------------------------------------------------------------
-            # Non-Streaming Flow
-            # -----------------------------------------------------------------
-            upstream_resp = await client.send(upstream_req)
-            latency_ms = (time.perf_counter() - start_time) * 1000
+            # Prepare body: if model changed, rewrite model field
+            curr_body = body
+            if curr_mod != model_name and body_json:
+                mod_body = dict(body_json)
+                mod_body["model"] = curr_mod
+                curr_body = json.dumps(mod_body).encode("utf-8")
 
-            resp_bytes = upstream_resp.content
-            resp_headers = {
-                k: v for k, v in upstream_resp.headers.items()
-                if k.lower() not in HOP_BY_HOP_HEADERS
-            }
-            resp_headers["X-TokenPulse-Request-Id"] = tp_req_id
+            # Resolve credentials and target URL for candidate
+            try:
+                api_key, base_url = await _resolve_provider_credentials(curr_prov, client_auth)
+            except Exception as cred_err:
+                if not is_last:
+                    logger.warning("Could not resolve credentials for %s: %s; trying next fallback", curr_prov, cred_err)
+                    continue
+                raise
 
-            input_tokens = None
-            output_tokens = None
-            total_tokens = None
-            cached_tokens = None
-            reasoning_tokens = None
-            finish_reason = None
-            provider_req_id = upstream_resp.headers.get("x-request-id")
-            error_msg = None
+            # Normalize path
+            target_path = subpath.lstrip("/")
+            if curr_prov == "ollama":
+                if not target_path.startswith("v1/") and not target_path.startswith("api/"):
+                    target_path = f"v1/{target_path}"
+                upstream_url = f"{base_url.rstrip('/')}/{target_path}"
+            elif curr_prov in ("openai", "groq", "mistral"):
+                if not target_path.startswith("v1/"):
+                    target_path = f"v1/{target_path}"
+                upstream_url = f"{base_url.rstrip('/')}/{target_path}"
+            elif curr_prov in ("anthropic", "gemini"):
+                upstream_url = f"{base_url.rstrip('/')}/{target_path}"
 
-            if upstream_resp.status_code == 200 and "application/json" in upstream_resp.headers.get("content-type", ""):
-                try:
-                    resp_json = json.loads(resp_bytes.decode("utf-8"))
-                    provider_req_id = resp_json.get("id") or provider_req_id
-                    if clean_provider in ("openai", "groq", "mistral", "ollama"):
-                        u = resp_json.get("usage") or {}
-                        input_tokens = u.get("prompt_tokens")
-                        output_tokens = u.get("completion_tokens")
-                        total_tokens = u.get("total_tokens")
-                        ptd = u.get("prompt_tokens_details") or {}
-                        cached_tokens = ptd.get("cached_tokens")
-                        ctd = u.get("completion_tokens_details") or {}
-                        reasoning_tokens = ctd.get("reasoning_tokens")
-                        choices = resp_json.get("choices") or []
-                        if choices and isinstance(choices, list) and isinstance(choices[0], dict):
-                            finish_reason = choices[0].get("finish_reason")
-                    elif clean_provider == "anthropic":
-                        u = resp_json.get("usage") or {}
-                        input_tokens = u.get("input_tokens")
-                        output_tokens = u.get("output_tokens")
-                        total_tokens = (input_tokens + output_tokens) if input_tokens and output_tokens else None
-                    elif clean_provider == "gemini":
-                        u = resp_json.get("usageMetadata") or {}
-                        input_tokens = u.get("promptTokenCount")
-                        output_tokens = u.get("candidatesTokenCount")
-                        total_tokens = u.get("totalTokenCount")
-                except Exception as parse_err:
-                    logger.debug("Could not parse JSON usage: %s", parse_err)
-            elif upstream_resp.status_code >= 400:
-                error_msg = redact_sensitive_text(resp_bytes.decode("utf-8", errors="replace")[:500])
+            # Query params
+            query_params = dict(request.query_params)
+            if curr_prov == "gemini" and api_key and "key" not in query_params:
+                query_params["key"] = api_key
 
-            # Persist and broadcast
-            asyncio.create_task(_persist_gateway_telemetry(
-                provider=clean_provider,
-                model=model_name,
-                status_code=upstream_resp.status_code,
-                latency_ms=latency_ms,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens,
-                cached_tokens=cached_tokens,
-                reasoning_tokens=reasoning_tokens,
-                ttft_ms=None,
-                stream_duration_ms=None,
-                finish_reason=finish_reason,
-                provider_request_id=provider_req_id,
-                tokenpulse_request_id=tp_req_id,
-                error_msg=error_msg,
-            ))
+            # Outgoing headers
+            out_headers: Dict[str, str] = {}
+            for k, v in request.headers.items():
+                if k.lower() not in HOP_BY_HOP_HEADERS:
+                    out_headers[k] = v
 
-            return Response(
-                content=resp_bytes,
-                status_code=upstream_resp.status_code,
-                headers=resp_headers,
+            if "authorization" in out_headers and "tp_live_" in out_headers["authorization"]:
+                out_headers.pop("authorization", None)
+
+            if curr_prov in ("openai", "groq", "mistral", "ollama"):
+                if api_key:
+                    out_headers["authorization"] = f"Bearer {api_key}"
+                else:
+                    out_headers.pop("authorization", None)
+            elif curr_prov == "anthropic" and api_key:
+                out_headers["x-api-key"] = api_key
+                if "anthropic-version" not in out_headers:
+                    out_headers["anthropic-version"] = "2023-06-01"
+
+            upstream_req = client.build_request(
+                method=request.method,
+                url=upstream_url,
+                params=query_params,
+                headers=out_headers,
+                content=curr_body,
             )
 
-        else:
-            # -----------------------------------------------------------------
-            # Streaming Flow (Real-time progressive chunking + TTFT calculation)
-            # -----------------------------------------------------------------
-            upstream_resp = await client.send(upstream_req, stream=True)
-            resp_headers = {
-                k: v for k, v in upstream_resp.headers.items()
-                if k.lower() not in HOP_BY_HOP_HEADERS
-            }
-            resp_headers["X-TokenPulse-Request-Id"] = tp_req_id
-
-            async def stream_generator() -> AsyncGenerator[bytes, None]:
-                ttft_recorded: Optional[float] = None
-                tokens_in: Optional[int] = None
-                tokens_out: Optional[int] = None
-                tokens_tot: Optional[int] = None
-                finish_res: Optional[str] = None
-                err_text: Optional[str] = None
-                provider_req_id: Optional[str] = upstream_resp.headers.get("x-request-id")
-
+            if not is_streaming:
                 try:
-                    async for chunk in upstream_resp.aiter_raw():
-                        if not chunk:
-                            continue
-                        if ttft_recorded is None and chunk.strip():
-                            ttft_recorded = (time.perf_counter() - start_time) * 1000
+                    upstream_resp = await client.send(upstream_req)
+                except (httpx.TimeoutException, httpx.ConnectError) as net_err:
+                    if not is_last:
+                        logger.warning("Upstream %s connection/timeout error: %s; trying fallback", curr_prov, net_err)
+                        if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
+                            candidates[i + 1]["fallback_reason"] = "timeout"
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
+                    )
 
-                        # Inspect SSE lines for usage
-                        chunk_str = chunk.decode("utf-8", errors="ignore")
-                        if "usage" in chunk_str:
-                            for line in chunk_str.splitlines():
-                                if line.startswith("data: ") and not line.strip() == "data: [DONE]":
-                                    try:
-                                        data = json.loads(line[6:].strip())
-                                        provider_req_id = data.get("id") or provider_req_id
-                                        u = data.get("usage")
-                                        if u:
-                                            tokens_in = u.get("prompt_tokens") or tokens_in
-                                            tokens_out = u.get("completion_tokens") or tokens_out
-                                            tokens_tot = u.get("total_tokens") or tokens_tot
-                                        choices = data.get("choices") or []
-                                        if choices and isinstance(choices, list) and isinstance(choices[0], dict):
-                                            f_reason = choices[0].get("finish_reason")
-                                            if f_reason:
-                                                finish_res = f_reason
-                                    except Exception:
-                                        pass
-                        yield chunk
+                # Check retryable status
+                if upstream_resp.status_code in (429, 500, 502, 503, 504) and not is_last:
+                    logger.warning("Upstream %s failed with HTTP %d; trying fallback", curr_prov, upstream_resp.status_code)
+                    if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
+                        candidates[i + 1]["fallback_reason"] = f"upstream_{upstream_resp.status_code}"
+                    continue
 
-                except asyncio.CancelledError:
-                    err_text = "Client disconnected during streaming"
-                    raise
-                except Exception as exc:
-                    err_text = redact_sensitive_text(str(exc))
-                    raise
-                finally:
+                latency_ms = (time.perf_counter() - start_time) * 1000
+                resp_bytes = upstream_resp.content
+                resp_headers = {
+                    k: v for k, v in upstream_resp.headers.items()
+                    if k.lower() not in HOP_BY_HOP_HEADERS
+                }
+                resp_headers["X-TokenPulse-Request-Id"] = tp_req_id
+
+                if fb_reason:
+                    resp_headers["X-TokenPulse-Fallback"] = "true"
+                    resp_headers["X-TokenPulse-Original-Provider"] = clean_provider
+                    resp_headers["X-TokenPulse-Original-Model"] = model_name
+                    resp_headers["X-TokenPulse-Actual-Provider"] = curr_prov
+                    resp_headers["X-TokenPulse-Actual-Model"] = curr_mod
+                    resp_headers["X-TokenPulse-Fallback-Reason"] = fb_reason
+
+                input_tokens, output_tokens, total_tokens = None, None, None
+                cached_tokens, reasoning_tokens, finish_reason = None, None, None
+                provider_req_id = upstream_resp.headers.get("x-request-id")
+                error_msg = None
+
+                if upstream_resp.status_code == 200 and "application/json" in upstream_resp.headers.get("content-type", ""):
+                    try:
+                        resp_json = json.loads(resp_bytes.decode("utf-8"))
+                        provider_req_id = resp_json.get("id") or provider_req_id
+                        if curr_prov in ("openai", "groq", "mistral", "ollama"):
+                            u = resp_json.get("usage") or {}
+                            input_tokens = u.get("prompt_tokens")
+                            output_tokens = u.get("completion_tokens")
+                            total_tokens = u.get("total_tokens")
+                            ptd = u.get("prompt_tokens_details") or {}
+                            cached_tokens = ptd.get("cached_tokens")
+                            ctd = u.get("completion_tokens_details") or {}
+                            reasoning_tokens = ctd.get("reasoning_tokens")
+                            choices = resp_json.get("choices") or []
+                            if choices and isinstance(choices, list) and isinstance(choices[0], dict):
+                                finish_reason = choices[0].get("finish_reason")
+                        elif curr_prov == "anthropic":
+                            u = resp_json.get("usage") or {}
+                            input_tokens = u.get("input_tokens")
+                            output_tokens = u.get("output_tokens")
+                            total_tokens = (input_tokens + output_tokens) if input_tokens and output_tokens else None
+                        elif curr_prov == "gemini":
+                            u = resp_json.get("usageMetadata") or {}
+                            input_tokens = u.get("promptTokenCount")
+                            output_tokens = u.get("candidatesTokenCount")
+                            total_tokens = u.get("totalTokenCount")
+                    except Exception as parse_err:
+                        logger.debug("Could not parse JSON usage: %s", parse_err)
+                elif upstream_resp.status_code >= 400:
+                    error_msg = redact_sensitive_text(resp_bytes.decode("utf-8", errors="replace")[:500])
+
+                asyncio.create_task(_persist_gateway_telemetry(
+                    provider=curr_prov,
+                    model=curr_mod,
+                    status_code=upstream_resp.status_code,
+                    latency_ms=latency_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    cached_tokens=cached_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    ttft_ms=None,
+                    stream_duration_ms=None,
+                    finish_reason=finish_reason,
+                    provider_request_id=provider_req_id,
+                    tokenpulse_request_id=tp_req_id,
+                    error_msg=error_msg,
+                    fallback_triggered=bool(fb_reason),
+                    original_provider=clean_provider if fb_reason else None,
+                    original_model=model_name if fb_reason else None,
+                    fallback_reason=fb_reason,
+                ))
+
+                return Response(
+                    content=resp_bytes,
+                    status_code=upstream_resp.status_code,
+                    headers=resp_headers,
+                )
+            else:
+                # Streaming flow
+                try:
+                    upstream_resp = await client.send(upstream_req, stream=True)
+                except (httpx.TimeoutException, httpx.ConnectError) as net_err:
+                    if not is_last:
+                        logger.warning("Upstream stream %s connection/timeout error: %s; trying fallback", curr_prov, net_err)
+                        if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
+                            candidates[i + 1]["fallback_reason"] = "timeout"
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
+                    )
+
+                if upstream_resp.status_code in (429, 500, 502, 503, 504) and not is_last:
                     await upstream_resp.aclose()
-                    total_dur = (time.perf_counter() - start_time) * 1000
+                    logger.warning("Upstream stream %s failed with %d; trying fallback", curr_prov, upstream_resp.status_code)
+                    if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
+                        candidates[i + 1]["fallback_reason"] = f"upstream_{upstream_resp.status_code}"
+                    continue
 
-                    asyncio.create_task(_persist_gateway_telemetry(
-                        provider=clean_provider,
-                        model=model_name,
-                        status_code=upstream_resp.status_code if not err_text else 499,
-                        latency_ms=total_dur,
-                        input_tokens=tokens_in,
-                        output_tokens=tokens_out,
-                        total_tokens=tokens_tot,
-                        cached_tokens=None,
-                        reasoning_tokens=None,
-                        ttft_ms=ttft_recorded,
-                        stream_duration_ms=total_dur,
-                        finish_reason=finish_res,
-                        provider_request_id=provider_req_id,
-                        tokenpulse_request_id=tp_req_id,
-                        error_msg=err_text,
-                    ))
+                resp_headers = {
+                    k: v for k, v in upstream_resp.headers.items()
+                    if k.lower() not in HOP_BY_HOP_HEADERS
+                }
+                resp_headers["X-TokenPulse-Request-Id"] = tp_req_id
+                if fb_reason:
+                    resp_headers["X-TokenPulse-Fallback"] = "true"
+                    resp_headers["X-TokenPulse-Original-Provider"] = clean_provider
+                    resp_headers["X-TokenPulse-Original-Model"] = model_name
+                    resp_headers["X-TokenPulse-Actual-Provider"] = curr_prov
+                    resp_headers["X-TokenPulse-Actual-Model"] = curr_mod
+                    resp_headers["X-TokenPulse-Fallback-Reason"] = fb_reason
 
-            return StreamingResponse(
-                stream_generator(),
-                status_code=upstream_resp.status_code,
-                headers=resp_headers,
-            )
+                async def stream_generator() -> AsyncGenerator[bytes, None]:
+                    ttft_recorded: Optional[float] = None
+                    tokens_in: Optional[int] = None
+                    tokens_out: Optional[int] = None
+                    tokens_tot: Optional[int] = None
+                    finish_res: Optional[str] = None
+                    err_text: Optional[str] = None
+                    provider_req_id: Optional[str] = upstream_resp.headers.get("x-request-id")
+
+                    try:
+                        async for chunk in upstream_resp.aiter_raw():
+                            if not chunk:
+                                continue
+                            if ttft_recorded is None and chunk.strip():
+                                ttft_recorded = (time.perf_counter() - start_time) * 1000
+
+                            chunk_str = chunk.decode("utf-8", errors="ignore")
+                            if "usage" in chunk_str:
+                                for line in chunk_str.splitlines():
+                                    if line.startswith("data: ") and not line.strip() == "data: [DONE]":
+                                        try:
+                                            data = json.loads(line[6:].strip())
+                                            provider_req_id = data.get("id") or provider_req_id
+                                            u = data.get("usage")
+                                            if u:
+                                                tokens_in = u.get("prompt_tokens") or tokens_in
+                                                tokens_out = u.get("completion_tokens") or tokens_out
+                                                tokens_tot = u.get("total_tokens") or tokens_tot
+                                            choices = data.get("choices") or []
+                                            if choices and isinstance(choices, list) and isinstance(choices[0], dict):
+                                                f_reason = choices[0].get("finish_reason")
+                                                if f_reason:
+                                                    finish_res = f_reason
+                                        except Exception:
+                                            pass
+                            yield chunk
+
+                    except asyncio.CancelledError:
+                        err_text = "Client disconnected during streaming"
+                        raise
+                    except Exception as exc:
+                        err_text = redact_sensitive_text(str(exc))
+                        raise
+                    finally:
+                        await upstream_resp.aclose()
+                        total_dur = (time.perf_counter() - start_time) * 1000
+
+                        asyncio.create_task(_persist_gateway_telemetry(
+                            provider=curr_prov,
+                            model=curr_mod,
+                            status_code=upstream_resp.status_code if not err_text else 499,
+                            latency_ms=total_dur,
+                            input_tokens=tokens_in,
+                            output_tokens=tokens_out,
+                            total_tokens=tokens_tot,
+                            cached_tokens=None,
+                            reasoning_tokens=None,
+                            ttft_ms=ttft_recorded,
+                            stream_duration_ms=total_dur,
+                            finish_reason=finish_res,
+                            provider_request_id=provider_req_id,
+                            tokenpulse_request_id=tp_req_id,
+                            error_msg=err_text,
+                            fallback_triggered=bool(fb_reason),
+                            original_provider=clean_provider if fb_reason else None,
+                            original_model=model_name if fb_reason else None,
+                            fallback_reason=fb_reason,
+                        ))
+
+                return StreamingResponse(
+                    stream_generator(),
+                    status_code=upstream_resp.status_code,
+                    headers=resp_headers,
+                )
 
     except httpx.TimeoutException as te:
         dur = (time.perf_counter() - start_time) * 1000

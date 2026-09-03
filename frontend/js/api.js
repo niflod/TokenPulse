@@ -266,4 +266,24 @@ const API = {
   async toggleClientKey(id) {
     return this._request(`/api/keys/${id}/toggle`, { method: 'PUT' });
   },
+
+  // Fallback & Failover Rules
+  async getFallbackRules() {
+    return this._request('/api/fallback-rules');
+  },
+
+  async createFallbackRule(data) {
+    return this._request('/api/fallback-rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteFallbackRule(id) {
+    return this._request(`/api/fallback-rules/${id}`, { method: 'DELETE' });
+  },
+
+  async toggleFallbackRule(id) {
+    return this._request(`/api/fallback-rules/${id}/toggle`, { method: 'PUT' });
+  },
 };
