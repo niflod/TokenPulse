@@ -1,0 +1,33 @@
+# Environment & Virtual Environments
+.venv/
+backend/.venv/
+venv/
+env/
+.env
+.env.*
+
+# Python Cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+
+# SQLite & Data
+backend/data/*.db*
+backend/data/*.sqlite*
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
