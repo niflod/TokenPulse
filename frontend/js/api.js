@@ -286,4 +286,24 @@ const API = {
   async toggleFallbackRule(id) {
     return this._request(`/api/fallback-rules/${id}/toggle`, { method: 'PUT' });
   },
+
+  // Gateway Response Caching
+  async getCacheStats() {
+    return this._request('/api/cache/stats');
+  },
+
+  async getCacheConfig() {
+    return this._request('/api/cache/config');
+  },
+
+  async updateCacheConfig(data) {
+    return this._request('/api/cache/config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async flushCache() {
+    return this._request('/api/cache/flush', { method: 'POST' });
+  },
 };

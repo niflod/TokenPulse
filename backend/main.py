@@ -32,6 +32,7 @@ from routers import (
 )
 from routers.api_keys import router as api_keys_router
 from routers.auth import router as auth_router
+from routers.cache_router import router as cache_router
 from routers.fallback_rules import router as fallback_rules_router
 from services.aggregator import aggregator
 
@@ -205,6 +206,7 @@ async def jwt_auth_middleware(request, call_next):
 # Register API Routers
 app.include_router(auth_router)
 app.include_router(api_keys_router)
+app.include_router(cache_router)
 app.include_router(fallback_rules_router)
 app.include_router(metrics_router)
 app.include_router(providers_router)

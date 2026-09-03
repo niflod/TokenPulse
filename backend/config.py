@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = 24  # JWT token TTL
     alert_webhook_url: Optional[str] = None  # Webhook (Discord/Slack/Generic) for triggered alerts
     provider_monthly_budget: Optional[float] = None  # Hard monthly budget limit in USD per provider
+    gateway_cache_enabled: bool = True
+    gateway_cache_default_ttl: int = 3600  # Default 1 hour in seconds
 
     @field_validator("secret_key")
     @classmethod

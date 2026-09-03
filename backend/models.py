@@ -114,6 +114,9 @@ class RequestLog(Base):
     original_model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     fallback_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # Response Caching metadata
+    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
 
 class AlertConfig(Base):
     """Configures thresholds for anomaly / usage alerts."""
@@ -192,3 +195,30 @@ class FallbackRule(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+class GatewayResponseCache(Base):
+    """
+    Cached responses for identical Gateway requests.
+    Indexed by deterministic SHA-256 hash of canonical request parameters.
+    """
+
+    __tablename__ = "gateway_response_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    response_headers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    estimated_saved_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+

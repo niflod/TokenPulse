@@ -113,6 +113,7 @@ async def init_db() -> None:
                 ("original_provider", "VARCHAR(64)"),
                 ("original_model", "VARCHAR(128)"),
                 ("fallback_reason", "VARCHAR(64)"),
+                ("cache_hit", "BOOLEAN DEFAULT 0"),
             ]
             for col_name, col_type in new_cols:
                 if col_name not in existing_cols:

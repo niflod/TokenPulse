@@ -258,6 +258,19 @@ const App = {
     Metrics.renderProjection(summary.projection || {});
     Alerts.renderAnomalies(document.getElementById('anomalies-container'), anomalies);
 
+    // Render Cache Savings
+    if (!this._isDemoMode) {
+      API.getCacheStats().then((res) => {
+        if (res && res.data) {
+          const cStats = res.data;
+          const savingsEl = document.getElementById('mini-cache-savings');
+          const hitRateEl = document.getElementById('mini-cache-hit-rate');
+          if (savingsEl) savingsEl.textContent = `$${Number(cStats.total_saved_cost_usd || 0).toFixed(4)}`;
+          if (hitRateEl) hitRateEl.textContent = `${cStats.cache_hit_rate_pct || 0}% hit rate (${cStats.total_hits || 0} hits)`;
+        }
+      });
+    }
+
     // Render charts
     Charts.renderTimeline('chart-timeline', timeseries);
     Charts.renderProviders('chart-providers', summary.byProvider || []);
@@ -468,6 +481,29 @@ const App = {
           item.appendChild(actions);
           fbContainer.appendChild(item);
         });
+      }
+    }
+
+    // Render Cache Config & Stats
+    const cacheStatsText = document.getElementById('cache-stats-text');
+    const inputCacheEnabled = document.getElementById('input-cache-enabled');
+    const inputCacheTtl = document.getElementById('input-cache-ttl');
+
+    if (cacheStatsText) {
+      const [{ data: cStats }, { data: cConfig }] = await Promise.all([
+        API.getCacheStats(),
+        API.getCacheConfig(),
+      ]);
+
+      if (cConfig) {
+        if (inputCacheEnabled) inputCacheEnabled.value = String(cConfig.enabled);
+        if (inputCacheTtl) inputCacheTtl.value = cConfig.default_ttl_seconds || 3600;
+      }
+
+      if (cStats) {
+        cacheStatsText.textContent = `${cStats.active_entries} entradas ativas | ${cStats.total_hits} hits | $${cStats.total_saved_cost_usd} economizados (${cStats.cache_hit_rate_pct}% taxa de acerto)`;
+      } else {
+        cacheStatsText.textContent = 'Não foi possível carregar estatísticas do cache.';
       }
     }
 
@@ -792,6 +828,34 @@ const App = {
         Alerts.toast('Intervalo de atualização salvo!', 'info');
       });
     }
+
+    // Settings: Save Cache Config
+    document.getElementById('form-cache-config')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const enabled = document.getElementById('input-cache-enabled')?.value === 'true';
+      const ttl = parseInt(document.getElementById('input-cache-ttl')?.value, 10) || 3600;
+
+      const res = await API.updateCacheConfig({ enabled, default_ttl: ttl });
+      if (res.error) {
+        Alerts.toast(res.error.message || 'Erro ao salvar configuração do cache.', 'error');
+        return;
+      }
+      Alerts.toast('Configuração de cache atualizada com sucesso!', 'success');
+      this._loadSettings();
+    });
+
+    // Settings: Flush Cache
+    document.getElementById('btn-flush-cache')?.addEventListener('click', async () => {
+      if (confirm('Tem certeza que deseja invalidar e apagar todas as entradas de cache do Gateway?')) {
+        const res = await API.flushCache();
+        if (res.error) {
+          Alerts.toast(res.error.message || 'Erro ao limpar cache.', 'error');
+          return;
+        }
+        Alerts.toast(res.data?.message || 'Cache limpo com sucesso!', 'success');
+        this._loadSettings();
+      }
+    });
 
     // Settings: Admin API Key
     const inpAdminKey = document.getElementById('input-admin-key');

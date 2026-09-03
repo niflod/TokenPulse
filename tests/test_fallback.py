@@ -22,6 +22,9 @@ from routers.auth import create_access_token
 @pytest_asyncio.fixture(autouse=True)
 async def setup_database():
     await init_db()
+    from services.cache_service import flush_all_cache
+    async with AsyncSessionLocal() as db:
+        await flush_all_cache(db)
     yield
 
 

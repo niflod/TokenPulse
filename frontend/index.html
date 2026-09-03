@@ -305,6 +305,15 @@
               <span class="mini-card-val font-mono" id="mini-error-rate">N/D</span>
             </div>
           </div>
+
+          <div class="card mini-card">
+            <div class="mini-card-icon text-success"><i data-lucide="zap"></i></div>
+            <div class="mini-card-body">
+              <span class="mini-card-label">Economia com Cache</span>
+              <span class="mini-card-val font-mono text-success" id="mini-cache-savings">$0.00</span>
+              <span id="mini-cache-hit-rate" style="font-size: 11px; color: var(--text-dim); display: block;">0.0% hit rate</span>
+            </div>
+          </div>
         </div>
 
         <!-- 3. BURN RATE & PROJEÇÃO -->
@@ -734,6 +743,54 @@
             <div id="fallback-rules-list" class="configured-providers-list">
               <!-- Populado via JS -->
             </div>
+          </div>
+
+          <!-- 5. CACHE DE RESPOSTAS DO GATEWAY -->
+          <div class="card settings-card">
+            <div class="card-header">
+              <div class="flex-row gap-2">
+                <i data-lucide="zap" class="text-success"></i>
+                <h3 class="card-title">Cache de Respostas do Gateway</h3>
+              </div>
+            </div>
+            <p class="form-hint" style="margin-bottom: 16px;">
+              Armazena respostas idênticas em banco local. Chamadas repetidas respondem em &lt;5ms com custo $0.00 e sem consumir quotas de TPM/RPM.
+            </p>
+
+            <form id="form-cache-config" class="form-grid">
+              <div class="form-group">
+                <label for="input-cache-enabled">Status do Cache Global</label>
+                <select id="input-cache-enabled" class="form-control">
+                  <option value="true">Ativado (Recomendado)</option>
+                  <option value="false">Desativado</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="input-cache-ttl">TTL Padrão (Segundos)</label>
+                <input type="number" id="input-cache-ttl" class="form-control" value="3600" min="10" max="2592000" />
+                <small class="form-hint">3600 = 1 hora | 86400 = 24 horas</small>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">
+                  <i data-lucide="save"></i>
+                  <span>Salvar Configuração</span>
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+
+            <h4 class="subsection-title">Estatísticas do Cache</h4>
+            <div id="cache-stats-summary" style="margin-bottom: 16px;">
+              <span id="cache-stats-text" class="font-mono text-sm text-muted">Carregando estatísticas...</span>
+            </div>
+
+            <button type="button" class="btn btn-danger btn-sm" id="btn-flush-cache">
+              <i data-lucide="trash-2"></i>
+              <span>Limpar Todo o Cache</span>
+            </button>
           </div>
 
           <!-- 4. PREFERÊNCIAS GERAIS -->

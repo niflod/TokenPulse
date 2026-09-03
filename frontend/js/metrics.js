@@ -339,6 +339,14 @@ const Metrics = {
         fbBadge.title = `Fallback de ${l.original_provider || '?'}/${l.original_model || '?'} para ${l.provider}/${l.model} (${l.fallback_reason || 'automático'})`;
         tdModel.appendChild(fbBadge);
       }
+      if (l.cache_hit) {
+        const cacheBadge = document.createElement('span');
+        cacheBadge.className = 'badge-tag text-success';
+        cacheBadge.style.cssText = 'font-size: 10px; margin-left: 6px; border: 1px solid var(--success); padding: 1px 4px; border-radius: 4px;';
+        cacheBadge.textContent = '⚡ Cache HIT';
+        cacheBadge.title = 'Servido pelo cache local em <5ms a custo $0.00';
+        tdModel.appendChild(cacheBadge);
+      }
       if (l.request_id) {
         const reqIdSpan = document.createElement('span');
         reqIdSpan.className = 'font-mono';

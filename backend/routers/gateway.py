@@ -33,6 +33,11 @@ from security import (
     require_admin,
     validate_provider_base_url,
 )
+from services.cache_service import (
+    compute_gateway_cache_key,
+    get_cached_response,
+    set_cached_response,
+)
 from services.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
@@ -280,12 +285,16 @@ async def _persist_gateway_telemetry(
     original_provider: Optional[str] = None,
     original_model: Optional[str] = None,
     fallback_reason: Optional[str] = None,
+    cache_hit: bool = False,
 ) -> None:
     """Saves telemetry asynchronously and emits event bus notification."""
     if not settings.telemetry_enabled:
         return
 
-    c_in, c_out, c_tot = _calculate_cost(provider, model, input_tokens, output_tokens)
+    if cache_hit:
+        c_in, c_out, c_tot = 0.0, 0.0, 0.0
+    else:
+        c_in, c_out, c_tot = _calculate_cost(provider, model, input_tokens, output_tokens)
 
     try:
         async with AsyncSessionLocal() as db:
@@ -313,6 +322,7 @@ async def _persist_gateway_telemetry(
                 original_provider=original_provider,
                 original_model=original_model,
                 fallback_reason=fallback_reason,
+                cache_hit=cache_hit,
             )
             db.add(log_entry)
             await db.commit()
@@ -397,10 +407,140 @@ async def _proxy_request(
         except Exception:
             pass
 
-    # Retrieve fallback targets for this provider and model
-    fallback_targets = await _get_fallback_targets(clean_provider, model_name)
+    tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
+    start_time = time.perf_counter()
 
-    # Check budget for primary provider
+    # 3. Response Caching Check (Deterministic SHA-256 Hash Matching)
+    cache_header = request.headers.get("x-tokenpulse-cache", "").lower().strip()
+    cache_control = request.headers.get("cache-control", "").lower().strip()
+    is_cache_bypassed = (
+        not settings.gateway_cache_enabled
+        or cache_header in ("false", "no-cache", "0", "off")
+        or "no-cache" in cache_control
+    )
+
+    custom_ttl_header = request.headers.get("x-tokenpulse-cache-ttl")
+    try:
+        req_cache_ttl = int(custom_ttl_header) if custom_ttl_header else settings.gateway_cache_default_ttl
+    except ValueError:
+        req_cache_ttl = settings.gateway_cache_default_ttl
+
+    cache_key = None
+    if not is_cache_bypassed and body_json:
+        cache_key = compute_gateway_cache_key(clean_provider, model_name, body_json)
+        async with AsyncSessionLocal() as cache_db:
+            cached_entry = await get_cached_response(cache_db, cache_key)
+            if cached_entry:
+                entry_created = cached_entry.created_at
+                if entry_created.tzinfo is None:
+                    entry_created = entry_created.replace(tzinfo=timezone.utc)
+                cache_age = int((datetime.now(timezone.utc) - entry_created).total_seconds())
+                resp_headers = {
+                    "Content-Type": "application/json",
+                    "X-TokenPulse-Request-Id": tp_req_id,
+                    "X-TokenPulse-Cache": "HIT",
+                    "X-TokenPulse-Cache-Age": str(max(cache_age, 0)),
+                }
+
+                if not is_streaming:
+                    latency_ms = (time.perf_counter() - start_time) * 1000
+                    asyncio.create_task(_persist_gateway_telemetry(
+                        provider=clean_provider,
+                        model=model_name,
+                        status_code=200,
+                        latency_ms=latency_ms,
+                        input_tokens=cached_entry.input_tokens,
+                        output_tokens=cached_entry.output_tokens,
+                        total_tokens=cached_entry.total_tokens,
+                        cached_tokens=None,
+                        reasoning_tokens=None,
+                        ttft_ms=None,
+                        stream_duration_ms=None,
+                        finish_reason="stop",
+                        provider_request_id=f"cache_{cached_entry.cache_key[:12]}",
+                        tokenpulse_request_id=tp_req_id,
+                        cache_hit=True,
+                    ))
+                    return Response(
+                        content=cached_entry.response_json.encode("utf-8"),
+                        status_code=200,
+                        headers=resp_headers,
+                    )
+                else:
+                    # Streaming SSE Cache Hit: synthesize instant token stream
+                    resp_headers["Content-Type"] = "text/event-stream"
+                    resp_headers["Cache-Control"] = "no-cache"
+
+                    async def cached_stream_generator() -> AsyncGenerator[bytes, None]:
+                        ttft_recorded = (time.perf_counter() - start_time) * 1000
+                        try:
+                            try:
+                                cached_data = json.loads(cached_entry.response_json)
+                            except Exception:
+                                cached_data = {}
+
+                            choices = cached_data.get("choices") or []
+                            content_text = ""
+                            if choices and isinstance(choices[0], dict):
+                                content_text = choices[0].get("message", {}).get("content", "")
+
+                            chunk_id = f"chatcmpl-cache-{tp_req_id}"
+                            init_chunk = {
+                                "id": chunk_id,
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": model_name,
+                                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+                            }
+                            yield f"data: {json.dumps(init_chunk)}\n\n".encode("utf-8")
+
+                            if content_text:
+                                text_chunk = {
+                                    "id": chunk_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": model_name,
+                                    "choices": [{"index": 0, "delta": {"content": content_text}, "finish_reason": None}],
+                                }
+                                yield f"data: {json.dumps(text_chunk)}\n\n".encode("utf-8")
+
+                            final_chunk = {
+                                "id": chunk_id,
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": model_name,
+                                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                            }
+                            yield f"data: {json.dumps(final_chunk)}\n\n".encode("utf-8")
+                            yield b"data: [DONE]\n\n"
+                        finally:
+                            total_dur = (time.perf_counter() - start_time) * 1000
+                            asyncio.create_task(_persist_gateway_telemetry(
+                                provider=clean_provider,
+                                model=model_name,
+                                status_code=200,
+                                latency_ms=total_dur,
+                                input_tokens=cached_entry.input_tokens,
+                                output_tokens=cached_entry.output_tokens,
+                                total_tokens=cached_entry.total_tokens,
+                                cached_tokens=None,
+                                reasoning_tokens=None,
+                                ttft_ms=ttft_recorded,
+                                stream_duration_ms=total_dur,
+                                finish_reason="stop",
+                                provider_request_id=f"cache_{cached_entry.cache_key[:12]}",
+                                tokenpulse_request_id=tp_req_id,
+                                cache_hit=True,
+                            ))
+
+                    return StreamingResponse(
+                        cached_stream_generator(),
+                        status_code=200,
+                        headers=resp_headers,
+                    )
+
+    # 4. Fallback Candidates Setup & Monthly Budget Cap Check
+    fallback_targets = await _get_fallback_targets(clean_provider, model_name)
     primary_budget_exceeded, total_spent, budget = await _is_provider_budget_exceeded(clean_provider)
 
     candidates: list[dict] = []
@@ -437,8 +577,6 @@ async def _proxy_request(
             detail=f"Orçamento mensal do provedor '{clean_provider}' excedido e todos os alvos de fallback também ultrapassaram o teto.",
         )
 
-    tp_req_id = f"tp_req_{uuid.uuid4().hex[:16]}"
-    start_time = time.perf_counter()
     client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
 
     # Fetch client from app.state or fallback
@@ -611,6 +749,33 @@ async def _proxy_request(
                     fallback_reason=fb_reason,
                 ))
 
+                if not is_cache_bypassed:
+                    resp_headers["X-TokenPulse-Cache"] = "MISS"
+
+                if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason:
+                    _, _, estimated_c_tot = _calculate_cost(curr_prov, curr_mod, input_tokens, output_tokens)
+                    raw_text = resp_bytes.decode("utf-8", errors="ignore")
+
+                    async def _save_cache_entry():
+                        try:
+                            async with AsyncSessionLocal() as cache_s:
+                                await set_cached_response(
+                                    db=cache_s,
+                                    cache_key=cache_key,
+                                    provider=curr_prov,
+                                    model=curr_mod,
+                                    response_json=raw_text,
+                                    input_tokens=input_tokens,
+                                    output_tokens=output_tokens,
+                                    total_tokens=total_tokens,
+                                    estimated_saved_cost=estimated_c_tot,
+                                    ttl_seconds=req_cache_ttl,
+                                )
+                        except Exception as c_err:
+                            logger.debug("Failed saving response cache: %s", c_err)
+
+                    asyncio.create_task(_save_cache_entry())
+
                 return Response(
                     content=resp_bytes,
                     status_code=upstream_resp.status_code,
@@ -643,6 +808,9 @@ async def _proxy_request(
                     if k.lower() not in HOP_BY_HOP_HEADERS
                 }
                 resp_headers["X-TokenPulse-Request-Id"] = tp_req_id
+                if not is_cache_bypassed:
+                    resp_headers["X-TokenPulse-Cache"] = "MISS"
+
                 if fb_reason:
                     resp_headers["X-TokenPulse-Fallback"] = "true"
                     resp_headers["X-TokenPulse-Original-Provider"] = clean_provider
@@ -658,6 +826,7 @@ async def _proxy_request(
                     tokens_tot: Optional[int] = None
                     finish_res: Optional[str] = None
                     err_text: Optional[str] = None
+                    accumulated_content: str = ""
                     provider_req_id: Optional[str] = upstream_resp.headers.get("x-request-id")
 
                     try:
@@ -668,7 +837,7 @@ async def _proxy_request(
                                 ttft_recorded = (time.perf_counter() - start_time) * 1000
 
                             chunk_str = chunk.decode("utf-8", errors="ignore")
-                            if "usage" in chunk_str:
+                            if "usage" in chunk_str or "choices" in chunk_str:
                                 for line in chunk_str.splitlines():
                                     if line.startswith("data: ") and not line.strip() == "data: [DONE]":
                                         try:
@@ -681,6 +850,10 @@ async def _proxy_request(
                                                 tokens_tot = u.get("total_tokens") or tokens_tot
                                             choices = data.get("choices") or []
                                             if choices and isinstance(choices, list) and isinstance(choices[0], dict):
+                                                delta = choices[0].get("delta") or {}
+                                                d_txt = delta.get("content")
+                                                if d_txt:
+                                                    accumulated_content += d_txt
                                                 f_reason = choices[0].get("finish_reason")
                                                 if f_reason:
                                                     finish_res = f_reason
@@ -719,6 +892,46 @@ async def _proxy_request(
                             original_model=model_name if fb_reason else None,
                             fallback_reason=fb_reason,
                         ))
+
+                        if cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
+                            cached_payload = {
+                                "id": provider_req_id or f"chatcmpl-{tp_req_id}",
+                                "object": "chat.completion",
+                                "created": int(time.time()),
+                                "model": curr_mod,
+                                "choices": [{
+                                    "index": 0,
+                                    "message": {"role": "assistant", "content": accumulated_content},
+                                    "finish_reason": finish_res or "stop",
+                                }],
+                                "usage": {
+                                    "prompt_tokens": tokens_in,
+                                    "completion_tokens": tokens_out,
+                                    "total_tokens": tokens_tot,
+                                },
+                            }
+                            _, _, estimated_c_tot = _calculate_cost(curr_prov, curr_mod, tokens_in, tokens_out)
+                            raw_stream_json = json.dumps(cached_payload)
+
+                            async def _save_stream_cache():
+                                try:
+                                    async with AsyncSessionLocal() as cache_s:
+                                        await set_cached_response(
+                                            db=cache_s,
+                                            cache_key=cache_key,
+                                            provider=curr_prov,
+                                            model=curr_mod,
+                                            response_json=raw_stream_json,
+                                            input_tokens=tokens_in,
+                                            output_tokens=tokens_out,
+                                            total_tokens=tokens_tot,
+                                            estimated_saved_cost=estimated_c_tot,
+                                            ttl_seconds=req_cache_ttl,
+                                        )
+                                except Exception as c_err:
+                                    logger.debug("Failed saving streaming cache: %s", c_err)
+
+                            asyncio.create_task(_save_stream_cache())
 
                 return StreamingResponse(
                     stream_generator(),
