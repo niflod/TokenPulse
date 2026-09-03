@@ -48,13 +48,12 @@ async def require_admin(
 ) -> bool:
     """
     Validates administrative access for mutating endpoints.
-    Accepts X-Admin-Key header, JWT Bearer token (header or query param), or open access if no admin key configured.
+    Fails closed: requires a valid JWT Bearer header or matching X-Admin-Key.
+    Never accepts tokens in query string.
     """
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:].strip()
-    elif request.query_params.get("token"):
-        token = request.query_params.get("token")
 
     if token:
         try:
@@ -65,11 +64,7 @@ async def require_admin(
             pass  # Fall through to X-Admin-Key check
 
     configured_key = settings.admin_api_key
-    if not configured_key:
-        return True  # Open by default if no admin key was specified in settings
-
-    # Check X-Admin-Key header
-    if x_admin_key and secrets_compare(x_admin_key, configured_key):
+    if configured_key and x_admin_key and secrets_compare(x_admin_key, configured_key):
         return True
 
     raise HTTPException(

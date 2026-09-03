@@ -140,3 +140,26 @@ async def test_remote_bootstrap_takeover_prevention(monkeypatch):
             json={"username": "attacker", "password": "password123"},
         )
         assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_require_admin_fails_closed_and_rejects_query_token(monkeypatch):
+    """Verify require_admin is fail-closed when admin_api_key is None and rejects ?token=."""
+    from routers.auth import create_access_token
+
+    monkeypatch.setattr(settings, "admin_api_key", None)
+    valid_jwt, _ = create_access_token("admin_user")
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Anonymous request to admin route fails closed with 401
+        r_anon = await client.post("/api/providers", json={"name": "test"})
+        assert r_anon.status_code == 401
+
+        # 2. Passing JWT via ?token= query parameter is strictly rejected with 401
+        r_query = await client.post(f"/api/providers?token={valid_jwt}", json={"name": "test"})
+        assert r_query.status_code == 401
+
+        # 3. Passing JWT via standard Authorization: Bearer header is accepted
+        r_bearer = await client.get("/api/keys", headers={"Authorization": f"Bearer {valid_jwt}"})
+        assert r_bearer.status_code == 200

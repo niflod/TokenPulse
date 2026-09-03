@@ -249,7 +249,15 @@ async def test_gateway_cache_streaming_sse_hit():
             assert res1.status_code == 200
             assert upstream_calls == 1
 
-            await asyncio.sleep(0.15)
+            from database import AsyncSessionLocal
+            from services.cache_service import compute_gateway_cache_key, get_cached_response
+
+            chk_key = compute_gateway_cache_key("openai", "gpt-4o", payload_base, subpath="v1/chat/completions")
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                async with AsyncSessionLocal() as chk_db:
+                    if await get_cached_response(chk_db, chk_key):
+                        break
 
             # 2. Second request with stream=True -> STREAMING CACHE HIT!
             stream_payload = dict(payload_base, stream=True)
