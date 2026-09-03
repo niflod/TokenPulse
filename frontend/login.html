@@ -171,7 +171,7 @@
 
     <div class="login-card">
       <!-- Setup form (first run) -->
-      <div id="setup-form" style="display:none;">
+      <div id="setup-form" style="display:block;">
         <h2>Criar Administrador</h2>
         <form id="form-setup" autocomplete="off">
           <div class="form-group">
@@ -212,124 +212,6 @@
     </div>
   </div>
 
-  <script>
-    const API_BASE = window.location.origin;
-
-    // If already authenticated, redirect to dashboard
-    const existingToken = localStorage.getItem('tp_token');
-    if (existingToken) {
-      window.location.href = '/';
-    }
-
-    async function checkSetupStatus() {
-      try {
-        const res = await fetch(`${API_BASE}/api/auth/status`);
-        const data = await res.json();
-        if (data.setup_completed) {
-          document.getElementById('login-form').style.display = 'block';
-          document.getElementById('login-username').focus();
-        } else {
-          document.getElementById('setup-form').style.display = 'block';
-          document.getElementById('setup-username').focus();
-        }
-      } catch (err) {
-        showError('Não foi possível conectar ao servidor.');
-      }
-    }
-
-    function showError(msg) {
-      const el = document.getElementById('error-msg');
-      el.textContent = msg;
-      el.style.display = 'block';
-      document.getElementById('success-msg').style.display = 'none';
-    }
-
-    function showSuccess(msg) {
-      const el = document.getElementById('success-msg');
-      el.textContent = msg;
-      el.style.display = 'block';
-      document.getElementById('error-msg').style.display = 'none';
-    }
-
-    // Setup form handler
-    document.getElementById('form-setup').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('setup-username').value.trim();
-      const password = document.getElementById('setup-password').value;
-      const confirm = document.getElementById('setup-confirm').value;
-
-      if (password !== confirm) {
-        showError('As senhas não coincidem.');
-        return;
-      }
-
-      const btn = document.getElementById('btn-setup');
-      btn.disabled = true;
-      btn.textContent = 'Criando...';
-
-      try {
-        const res = await fetch(`${API_BASE}/api/auth/setup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          showError(data.detail || 'Erro ao criar administrador.');
-          btn.disabled = false;
-          btn.textContent = 'Criar e Entrar';
-          return;
-        }
-
-        localStorage.setItem('tp_token', data.token);
-        localStorage.setItem('tp_username', data.username);
-        showSuccess('Administrador criado! Redirecionando...');
-        setTimeout(() => { window.location.href = '/'; }, 800);
-      } catch (err) {
-        showError('Erro de conexão com o servidor.');
-        btn.disabled = false;
-        btn.textContent = 'Criar e Entrar';
-      }
-    });
-
-    // Login form handler
-    document.getElementById('form-login').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('login-username').value.trim();
-      const password = document.getElementById('login-password').value;
-
-      const btn = document.getElementById('btn-login');
-      btn.disabled = true;
-      btn.textContent = 'Autenticando...';
-
-      try {
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          showError(data.detail || 'Credenciais inválidas.');
-          btn.disabled = false;
-          btn.textContent = 'Entrar';
-          return;
-        }
-
-        localStorage.setItem('tp_token', data.token);
-        localStorage.setItem('tp_username', data.username);
-        window.location.href = '/';
-      } catch (err) {
-        showError('Erro de conexão com o servidor.');
-        btn.disabled = false;
-        btn.textContent = 'Entrar';
-      }
-    });
-
-    checkSetupStatus();
-    lucide.createIcons();
-  </script>
+  <script src="js/login.js?v=2.2.0"></script>
 </body>
 </html>

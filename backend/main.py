@@ -121,11 +121,11 @@ async def add_security_headers(request, call_next):
     response = await call_next(request)
     csp = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 ws:; "
+        "connect-src 'self' http://localhost:* http://127.0.0.1:* ws:; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
         "form-action 'self';"
