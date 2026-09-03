@@ -125,3 +125,26 @@ class AlertConfig(Base):
     )
 
 
+class User(Base):
+    """Admin user for dashboard authentication."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    last_login: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        import bcrypt
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+    def verify_password(self, password: str) -> bool:
+        import bcrypt
+        return bcrypt.checkpw(password.encode("utf-8"), self.password_hash.encode("utf-8"))

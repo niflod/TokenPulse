@@ -243,16 +243,20 @@ async def test_gateway_unsupported_provider():
 @pytest.mark.asyncio
 async def test_models_listing_and_detail():
     """Verify models endpoint returns list of models and details correctly."""
+    from routers.auth import create_access_token
+    token, _ = create_access_token("admin")
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
     asgi_transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
         # 1. Models list
-        res = await client.get("/api/models")
+        res = await client.get("/api/models", headers=auth_headers)
         assert res.status_code == 200
         models_data = res.json()
         assert isinstance(models_data, list)
 
         # 2. Model detail
-        detail_res = await client.get("/api/models/openai/gpt-4o")
+        detail_res = await client.get("/api/models/openai/gpt-4o", headers=auth_headers)
         assert detail_res.status_code == 200
         detail = detail_res.json()
         assert detail["model"] == "gpt-4o"

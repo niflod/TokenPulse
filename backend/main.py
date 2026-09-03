@@ -30,6 +30,7 @@ from routers import (
     providers_router,
     realtime_router,
 )
+from routers.auth import router as auth_router
 from services.aggregator import aggregator
 
 logging.basicConfig(
@@ -135,7 +136,67 @@ async def add_security_headers(request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
+
+# Paths that bypass JWT authentication (handled by own auth or public)
+_PUBLIC_PREFIXES = (
+    "/api/auth/login",
+    "/api/auth/setup",
+    "/api/auth/status",
+    "/api/ping",
+    "/api/gateway/health",
+    "/gateway",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+)
+_STATIC_EXTENSIONS = (".html", ".css", ".js", ".ico", ".png", ".svg", ".woff", ".woff2", ".ttf", ".map")
+
+
+@app.middleware("http")
+async def jwt_auth_middleware(request, call_next):
+    """Global JWT protection. Rejects unauthenticated requests to protected endpoints."""
+    from starlette.responses import JSONResponse
+
+    path = request.url.path
+
+    # Allow static files and public API paths
+    if path == "/" or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        return await call_next(request)
+
+    # Allow static file extensions (CSS, JS, images, fonts)
+    if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
+        return await call_next(request)
+
+    # Check JWT token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        try:
+            from routers.auth import decode_access_token
+            decode_access_token(token)
+            return await call_next(request)
+        except Exception:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token inválido ou expirado."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    # Also accept X-Admin-Key for backwards compatibility
+    admin_key = request.headers.get("x-admin-key", "")
+    if admin_key and settings.admin_api_key:
+        import hmac
+        if hmac.compare_digest(admin_key.encode(), settings.admin_api_key.encode()):
+            return await call_next(request)
+
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Autenticação necessária. Faça login em /login.html"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 # Register API Routers
+app.include_router(auth_router)
 app.include_router(metrics_router)
 app.include_router(providers_router)
 app.include_router(models_router)

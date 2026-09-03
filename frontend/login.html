@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenPulse — Login</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --bg-app: #080A0F;
+      --bg-card: #0D1118;
+      --bg-input: #111827;
+      --border-color: #1B2330;
+      --border-focus: #4D8DFF;
+      --text-main: #F5F7FA;
+      --text-muted: #9AA4B2;
+      --text-dim: #4D5A6E;
+      --accent: #4D8DFF;
+      --accent-hover: #3A7AEF;
+      --ai-accent: #8B7CFF;
+      --color-critical: #FF5C6C;
+      --color-critical-bg: rgba(255, 92, 108, 0.15);
+      --color-normal: #35D07F;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-app);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 420px;
+      padding: 2rem;
+    }
+
+    .login-logo {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .login-logo h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .login-logo p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+
+    .login-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+    }
+
+    .login-card h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 0.9375rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(77, 141, 255, 0.12);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 0.5rem;
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      color: #fff;
+      font-family: var(--font-sans);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    .btn-login:hover { opacity: 0.9; }
+    .btn-login:active { transform: scale(0.98); }
+    .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .error-msg {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: var(--color-critical-bg);
+      border: 1px solid var(--color-critical);
+      border-radius: var(--radius-md);
+      color: var(--color-critical);
+      font-size: 0.8125rem;
+      display: none;
+    }
+
+    .success-msg {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: rgba(53, 208, 127, 0.12);
+      border: 1px solid var(--color-normal);
+      border-radius: var(--radius-md);
+      color: var(--color-normal);
+      font-size: 0.8125rem;
+      display: none;
+    }
+
+    .password-hint {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 0.375rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-logo">
+      <h1>⚡ TokenPulse</h1>
+      <p>Observe your AI</p>
+    </div>
+
+    <div class="login-card">
+      <!-- Setup form (first run) -->
+      <div id="setup-form" style="display:none;">
+        <h2>Criar Administrador</h2>
+        <form id="form-setup" autocomplete="off">
+          <div class="form-group">
+            <label for="setup-username">Usuário</label>
+            <input type="text" id="setup-username" placeholder="admin" required minlength="3" maxlength="64" autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label for="setup-password">Senha</label>
+            <input type="password" id="setup-password" placeholder="••••••••" required minlength="8" maxlength="128" autocomplete="new-password" />
+            <p class="password-hint">Mínimo 8 caracteres</p>
+          </div>
+          <div class="form-group">
+            <label for="setup-confirm">Confirmar Senha</label>
+            <input type="password" id="setup-confirm" placeholder="••••••••" required minlength="8" maxlength="128" autocomplete="new-password" />
+          </div>
+          <button type="submit" class="btn-login" id="btn-setup">Criar e Entrar</button>
+        </form>
+      </div>
+
+      <!-- Login form -->
+      <div id="login-form" style="display:none;">
+        <h2>Entrar</h2>
+        <form id="form-login" autocomplete="on">
+          <div class="form-group">
+            <label for="login-username">Usuário</label>
+            <input type="text" id="login-username" placeholder="admin" required autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label for="login-password">Senha</label>
+            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
+          </div>
+          <button type="submit" class="btn-login" id="btn-login">Entrar</button>
+        </form>
+      </div>
+
+      <div id="error-msg" class="error-msg"></div>
+      <div id="success-msg" class="success-msg"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    // If already authenticated, redirect to dashboard
+    const existingToken = localStorage.getItem('tp_token');
+    if (existingToken) {
+      window.location.href = '/';
+    }
+
+    async function checkSetupStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/status`);
+        const data = await res.json();
+        if (data.setup_completed) {
+          document.getElementById('login-form').style.display = 'block';
+          document.getElementById('login-username').focus();
+        } else {
+          document.getElementById('setup-form').style.display = 'block';
+          document.getElementById('setup-username').focus();
+        }
+      } catch (err) {
+        showError('Não foi possível conectar ao servidor.');
+      }
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      document.getElementById('success-msg').style.display = 'none';
+    }
+
+    function showSuccess(msg) {
+      const el = document.getElementById('success-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      document.getElementById('error-msg').style.display = 'none';
+    }
+
+    // Setup form handler
+    document.getElementById('form-setup').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('setup-username').value.trim();
+      const password = document.getElementById('setup-password').value;
+      const confirm = document.getElementById('setup-confirm').value;
+
+      if (password !== confirm) {
+        showError('As senhas não coincidem.');
+        return;
+      }
+
+      const btn = document.getElementById('btn-setup');
+      btn.disabled = true;
+      btn.textContent = 'Criando...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showError(data.detail || 'Erro ao criar administrador.');
+          btn.disabled = false;
+          btn.textContent = 'Criar e Entrar';
+          return;
+        }
+
+        localStorage.setItem('tp_token', data.token);
+        localStorage.setItem('tp_username', data.username);
+        showSuccess('Administrador criado! Redirecionando...');
+        setTimeout(() => { window.location.href = '/'; }, 800);
+      } catch (err) {
+        showError('Erro de conexão com o servidor.');
+        btn.disabled = false;
+        btn.textContent = 'Criar e Entrar';
+      }
+    });
+
+    // Login form handler
+    document.getElementById('form-login').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      const btn = document.getElementById('btn-login');
+      btn.disabled = true;
+      btn.textContent = 'Autenticando...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showError(data.detail || 'Credenciais inválidas.');
+          btn.disabled = false;
+          btn.textContent = 'Entrar';
+          return;
+        }
+
+        localStorage.setItem('tp_token', data.token);
+        localStorage.setItem('tp_username', data.username);
+        window.location.href = '/';
+      } catch (err) {
+        showError('Erro de conexão com o servidor.');
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    });
+
+    checkSetupStatus();
+    lucide.createIcons();
+  </script>
+</body>
+</html>

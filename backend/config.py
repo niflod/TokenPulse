@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     log_retention_days: int = 90  # days
     gateway_rate_limit_rpm: int = 120  # requests per minute per IP
+    jwt_expiration_hours: int = 24  # JWT token TTL
 
     @field_validator("secret_key")
     @classmethod

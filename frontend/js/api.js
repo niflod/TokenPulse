@@ -19,6 +19,12 @@ const API = {
       const url = `${this.BASE_URL}${endpoint}`;
       const defaultHeaders = { 'Content-Type': 'application/json' };
 
+      // JWT auth token
+      const token = localStorage.getItem('tp_token');
+      if (token) {
+        defaultHeaders['Authorization'] = `Bearer ${token}`;
+      }
+
       // Optional Admin Key from non-sensitive preference storage
       const adminKey = window.Storage ? Storage.get('aum_admin_key') : null;
       if (adminKey) {
@@ -33,6 +39,14 @@ const API = {
 
       const res = await fetch(url, config);
       clearTimeout(timeoutId);
+
+      // Redirect to login on authentication failure
+      if (res.status === 401) {
+        localStorage.removeItem('tp_token');
+        localStorage.removeItem('tp_username');
+        window.location.href = '/login.html';
+        return { data: null, error: { status: 401, message: 'Sessão expirada.' } };
+      }
 
       if (res.status === 204) {
         return { data: null, error: null };

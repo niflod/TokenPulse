@@ -38,15 +38,24 @@ BLOCKED_IP_NETWORKS = [
     ipaddress.ip_network("fe80::/10"),
 ]
 
-
 async def require_admin(
     x_admin_key: Optional[str] = Security(api_key_header),
     authorization: Optional[str] = Header(None),
 ) -> bool:
     """
     Validates administrative access for mutating endpoints.
-    If ADMIN_API_KEY is not configured, allows local loopback development.
+    Accepts X-Admin-Key header, JWT Bearer token, or open access if no admin key configured.
     """
+    # Try JWT first (from Authorization: Bearer <jwt>)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+        try:
+            from routers.auth import decode_access_token
+            decode_access_token(token)
+            return True
+        except Exception:
+            pass  # Fall through to X-Admin-Key check
+
     configured_key = settings.admin_api_key
     if not configured_key:
         return True  # Open by default if no admin key was specified in settings
@@ -55,17 +64,37 @@ async def require_admin(
     if x_admin_key and secrets_compare(x_admin_key, configured_key):
         return True
 
-    # Check Authorization: Bearer <token>
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:].strip()
-        if secrets_compare(token, configured_key):
-            return True
-
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Acesso administrativo não autorizado. Forneça o header X-Admin-Key válido.",
-        headers={"WWW-Authenticate": "ApiKey"},
+        detail="Acesso administrativo não autorizado.",
+        headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def require_jwt(
+    authorization: Optional[str] = Header(None),
+) -> str:
+    """
+    FastAPI dependency that validates a JWT Bearer token.
+    Returns the username (sub claim) if valid.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de autenticação ausente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization[7:].strip()
+    try:
+        from routers.auth import decode_access_token
+        payload = decode_access_token(token)
+        return payload["sub"]
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido ou expirado.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def secrets_compare(val1: str, val2: str) -> bool:

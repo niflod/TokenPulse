@@ -11,6 +11,17 @@ const App = {
   _logsLimit: 50,
 
   async init() {
+    // Check JWT authentication
+    const token = localStorage.getItem('tp_token');
+    if (!token) {
+      window.location.href = '/login.html';
+      return;
+    }
+
+    const username = localStorage.getItem('tp_username') || 'admin';
+    const userDisplay = document.getElementById('user-display-name');
+    if (userDisplay) userDisplay.textContent = username;
+
     this._isDemoMode = Storage.getDemoMode();
     this.updateDemoBanner();
 
@@ -435,6 +446,13 @@ const App = {
       this.updateDemoBanner();
       Alerts.toast('Modo Demonstração DESATIVADO (Modo Real).', 'info');
       this.refresh();
+    });
+
+    // Logout Button
+    document.getElementById('btn-logout')?.addEventListener('click', () => {
+      localStorage.removeItem('tp_token');
+      localStorage.removeItem('tp_username');
+      window.location.href = '/login.html';
     });
 
     // Global Provider Selector
