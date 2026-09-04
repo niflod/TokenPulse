@@ -265,6 +265,23 @@ def _calculate_cost(provider: str, model: str, input_tokens: Optional[int], outp
     return c_in, c_out, c_tot
 
 
+def _classify_network_error(net_err: Exception, curr_prov: str) -> tuple[int, str, str, str]:
+    """Classify network errors into HTTP status, error code, client detail and fallback reason."""
+    if isinstance(net_err, httpx.TimeoutException):
+        return (
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            "provider_timeout",
+            f"Tempo limite esgotado ao comunicar com {curr_prov}.",
+            "timeout",
+        )
+    return (
+        status.HTTP_502_BAD_GATEWAY,
+        "provider_connect_error",
+        f"Falha de conexão com provedor {curr_prov}.",
+        "connect_error",
+    )
+
+
 async def _persist_gateway_telemetry(
     provider: str,
     model: str,
@@ -780,15 +797,16 @@ async def _proxy_request(
                 try:
                     upstream_resp = await client.send(upstream_req)
                 except (httpx.TimeoutException, httpx.ConnectError) as net_err:
+                    err_status, err_code, err_detail, fb_type = _classify_network_error(net_err, curr_prov)
                     if not is_last:
-                        logger.warning("Upstream %s connection/timeout error: %s; trying fallback", curr_prov, net_err)
+                        logger.warning("Upstream %s network error: %s; trying fallback", curr_prov, net_err)
                         if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
-                            candidates[i + 1]["fallback_reason"] = "timeout"
+                            candidates[i + 1]["fallback_reason"] = fb_type
                         continue
                     asyncio.create_task(_persist_gateway_telemetry(
                         provider=curr_prov,
                         model=curr_mod,
-                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        status_code=err_status,
                         latency_ms=(time.perf_counter() - start_time) * 1000,
                         input_tokens=None,
                         output_tokens=None,
@@ -797,10 +815,10 @@ async def _proxy_request(
                         reasoning_tokens=None,
                         ttft_ms=None,
                         stream_duration_ms=None,
-                        finish_reason="timeout",
+                        finish_reason=fb_type,
                         provider_request_id=None,
                         tokenpulse_request_id=tp_req_id,
-                        error_msg="provider_timeout",
+                        error_msg=err_code,
                         fallback_triggered=bool(fb_reason),
                         original_provider=clean_provider if fb_reason else None,
                         original_model=model_name if fb_reason else None,
@@ -808,8 +826,9 @@ async def _proxy_request(
                         usage_source="unknown",
                     ))
                     raise HTTPException(
-                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                        detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
+                        status_code=err_status,
+                        detail=err_detail,
+                        headers={"X-TokenPulse-Request-Id": tp_req_id},
                     )
 
                 # Check retryable status
@@ -921,15 +940,16 @@ async def _proxy_request(
                 try:
                     upstream_resp = await client.send(upstream_req, stream=True)
                 except (httpx.TimeoutException, httpx.ConnectError) as net_err:
+                    err_status, err_code, err_detail, fb_type = _classify_network_error(net_err, curr_prov)
                     if not is_last:
-                        logger.warning("Upstream stream %s connection/timeout error: %s; trying fallback", curr_prov, net_err)
+                        logger.warning("Upstream stream %s network error: %s; trying fallback", curr_prov, net_err)
                         if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
-                            candidates[i + 1]["fallback_reason"] = "timeout"
+                            candidates[i + 1]["fallback_reason"] = fb_type
                         continue
                     asyncio.create_task(_persist_gateway_telemetry(
                         provider=curr_prov,
                         model=curr_mod,
-                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        status_code=err_status,
                         latency_ms=(time.perf_counter() - start_time) * 1000,
                         input_tokens=None,
                         output_tokens=None,
@@ -938,10 +958,10 @@ async def _proxy_request(
                         reasoning_tokens=None,
                         ttft_ms=None,
                         stream_duration_ms=None,
-                        finish_reason="timeout",
+                        finish_reason=fb_type,
                         provider_request_id=None,
                         tokenpulse_request_id=tp_req_id,
-                        error_msg="provider_timeout",
+                        error_msg=err_code,
                         fallback_triggered=bool(fb_reason),
                         original_provider=clean_provider if fb_reason else None,
                         original_model=model_name if fb_reason else None,
@@ -949,8 +969,9 @@ async def _proxy_request(
                         usage_source="unknown",
                     ))
                     raise HTTPException(
-                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                        detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
+                        status_code=err_status,
+                        detail=err_detail,
+                        headers={"X-TokenPulse-Request-Id": tp_req_id},
                     )
 
                 if upstream_resp.status_code in (429, 500, 502, 503, 504) and not is_last:
@@ -978,6 +999,7 @@ async def _proxy_request(
 
                 async def stream_generator() -> AsyncGenerator[bytes, None]:
                     ttft_recorded: Optional[float] = None
+                    first_chunk_ms: Optional[float] = None
                     tokens_in: Optional[int] = None
                     tokens_out: Optional[int] = None
                     tokens_tot: Optional[int] = None
@@ -990,8 +1012,8 @@ async def _proxy_request(
                         async for chunk in upstream_resp.aiter_raw():
                             if not chunk:
                                 continue
-                            if ttft_recorded is None and chunk.strip():
-                                ttft_recorded = (time.perf_counter() - start_time) * 1000
+                            if first_chunk_ms is None and chunk.strip():
+                                first_chunk_ms = (time.perf_counter() - start_time) * 1000
 
                             chunk_str = chunk.decode("utf-8", errors="ignore")
                             if "usage" in chunk_str or "choices" in chunk_str or "content_block_delta" in chunk_str or "delta" in chunk_str:
@@ -1011,6 +1033,8 @@ async def _proxy_request(
                                                 delta = choices[0].get("delta") or {}
                                                 delta_content = delta.get("content")
                                                 if delta_content:
+                                                    if ttft_recorded is None:
+                                                        ttft_recorded = (time.perf_counter() - start_time) * 1000
                                                     accumulated_content += delta_content
                                                 f_reason = choices[0].get("finish_reason")
                                                 if f_reason:
@@ -1019,6 +1043,8 @@ async def _proxy_request(
                                             elif data.get("type") == "content_block_delta":
                                                 delta_content = data.get("delta", {}).get("text")
                                                 if delta_content:
+                                                    if ttft_recorded is None:
+                                                        ttft_recorded = (time.perf_counter() - start_time) * 1000
                                                     accumulated_content += delta_content
                                             elif data.get("type") == "message_delta":
                                                 f_reason = data.get("delta", {}).get("stop_reason")
@@ -1058,7 +1084,7 @@ async def _proxy_request(
                             total_tokens=tokens_tot,
                             cached_tokens=None,
                             reasoning_tokens=None,
-                            ttft_ms=ttft_recorded,
+                            ttft_ms=ttft_recorded if ttft_recorded is not None else first_chunk_ms,
                             stream_duration_ms=total_dur,
                             finish_reason=finish_res,
                             provider_request_id=provider_req_id,
@@ -1068,7 +1094,7 @@ async def _proxy_request(
                             original_provider=clean_provider if fb_reason else None,
                             original_model=model_name if fb_reason else None,
                             fallback_reason=fb_reason,
-                            usage_source="reported" if (tokens_in or tokens_out or tokens_tot) else "unknown",
+                            usage_source="reported" if any(t is not None for t in (tokens_in, tokens_out, tokens_tot)) else "unknown",
                         ))
 
                         if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
@@ -1081,8 +1107,8 @@ async def _proxy_request(
                                     "content": [{"type": "text", "text": accumulated_content}],
                                     "stop_reason": finish_res or "end_turn",
                                     "usage": {
-                                        "input_tokens": tokens_in or 0,
-                                        "output_tokens": tokens_out or 0,
+                                        "input_tokens": tokens_in,
+                                        "output_tokens": tokens_out,
                                     },
                                 }
                             else:

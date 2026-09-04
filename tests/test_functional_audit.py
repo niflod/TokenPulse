@@ -109,7 +109,7 @@ async def test_usage_source_and_null_token_semantics(monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.post(
             "/gateway/openai/v1/chat/completions",
-            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "ticket-02-query"}]},
+            json={"model": "custom-unlisted-model", "messages": [{"role": "user", "content": "ticket-02-query"}]},
         )
         assert res.status_code == 200
         tp_req_id = res.headers.get("X-TokenPulse-Request-Id")
@@ -123,6 +123,7 @@ async def test_usage_source_and_null_token_semantics(monkeypatch):
         assert log.input_tokens is None, "input_tokens must be None when omitted"
         assert log.output_tokens is None, "output_tokens must be None when omitted"
         assert log.total_tokens is None, "total_tokens must be None when omitted"
+        assert log.cost_total is None, "cost_total must be None for unlisted model"
         assert log.usage_source == "unknown"
 
 
@@ -168,7 +169,7 @@ async def test_progressive_streaming_and_monotonic_ttft(monkeypatch):
         log = (await db.execute(stmt)).scalar_one_or_none()
         assert log is not None
         assert log.time_to_first_token_ms is not None
-        assert log.time_to_first_token_ms >= 0.0, "TTFT must be non-negative"
+        assert log.time_to_first_token_ms >= 35.0, f"TTFT must reflect content arrival: {log.time_to_first_token_ms}ms"
         assert log.stream_duration_ms is not None
         assert log.stream_duration_ms >= log.time_to_first_token_ms, "Total duration must be >= TTFT"
         assert log.finish_reason == "stop"
@@ -251,10 +252,10 @@ async def test_client_disconnect_status_499(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_upstream_errors_and_retry_after(monkeypatch):
-    """Ticket 05: Status codes and Retry-After header must be faithfully relayed."""
+    """Ticket 05: Status codes, errors, and Retry-After header must be faithfully relayed."""
     monkeypatch.setattr(settings, "openai_api_key", "sk-mock-key")
 
-    # 429 Too Many Requests with Retry-After on a model with no fallback configured
+    # 1. 429 Too Many Requests with Retry-After on a model with no fallback configured
     def mock_429(req: httpx.Request):
         return httpx.Response(
             429,
@@ -280,6 +281,54 @@ async def test_upstream_errors_and_retry_after(monkeypatch):
         log = (await db.execute(stmt)).scalar_one_or_none()
         assert log is not None
         assert log.status_code == 429
+
+    # 2. 400 Bad Request passthrough
+    def mock_400(req: httpx.Request):
+        return httpx.Response(
+            400,
+            json={"error": {"message": "Invalid prompt parameter"}},
+            headers={"x-request-id": "req-400"},
+        )
+
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_400))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_400 = await client.post(
+            "/gateway/openai/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "bad-request-query"}]},
+        )
+        assert res_400.status_code == 400
+        assert res_400.json()["error"]["message"] == "Invalid prompt parameter"
+        req_400_id = res_400.headers.get("X-TokenPulse-Request-Id")
+
+    await asyncio.sleep(0.15)
+    async with AsyncSessionLocal() as db:
+        stmt = select(RequestLog).where(RequestLog.request_id == req_400_id)
+        log_400 = (await db.execute(stmt)).scalar_one_or_none()
+        assert log_400 is not None
+        assert log_400.status_code == 400
+
+    # 3. ConnectError -> 502 Bad Gateway
+    def mock_connect_error(req: httpx.Request):
+        raise httpx.ConnectError("Failed to connect to upstream host")
+
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_connect_error))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_502 = await client.post(
+            "/gateway/openai/v1/chat/completions",
+            json={"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "connect-error-query"}]},
+        )
+        assert res_502.status_code == 502
+        assert "Falha de conexão" in res_502.json().get("detail", "")
+        req_502_id = res_502.headers.get("X-TokenPulse-Request-Id")
+
+    await asyncio.sleep(0.15)
+    async with AsyncSessionLocal() as db:
+        stmt = select(RequestLog).where(RequestLog.request_id == req_502_id)
+        log_502 = (await db.execute(stmt)).scalar_one_or_none()
+        assert log_502 is not None
+        assert log_502.status_code == 502
+        assert log_502.error_message == "provider_connect_error"
+        assert log_502.finish_reason == "connect_error"
 
 
 @pytest.mark.asyncio
@@ -335,6 +384,51 @@ async def test_cache_and_fallback_telemetry(monkeypatch):
         assert hit_log is not None
         assert hit_log.cache_hit is True or hit_log.cache_hit == 1
         assert hit_log.cost_total == 0.0
+
+    # Part 2: Fallback records single consolidated log
+    monkeypatch.setattr(settings, "groq_api_key", "gsk-mock-key")
+    call_records = []
+
+    def mock_fallback_upstream(req: httpx.Request):
+        call_records.append(str(req.url))
+        if "api.openai.com" in str(req.url):
+            return httpx.Response(429, json={"error": {"message": "Rate limit"}})
+        elif "api.groq.com" in str(req.url):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-fallback",
+                    "choices": [{"message": {"content": "Fallback answer"}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
+                },
+            )
+        return httpx.Response(500)
+
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_fallback_upstream))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_fb = await client.post(
+            "/gateway/openai/v1/chat/completions",
+            json={"model": "gpt-4o", "messages": [{"role": "user", "content": "ticket-06-fallback-query"}]},
+        )
+        assert res_fb.status_code == 200
+        assert res_fb.headers.get("X-TokenPulse-Fallback") == "true"
+        assert res_fb.headers.get("X-TokenPulse-Original-Provider") == "openai"
+        fb_req_id = res_fb.headers.get("X-TokenPulse-Request-Id")
+
+    await asyncio.sleep(0.2)
+    assert len(call_records) == 2, "Must have called openai then groq"
+
+    async with AsyncSessionLocal() as db:
+        stmt_fb = select(RequestLog).where(RequestLog.request_id == fb_req_id)
+        fb_logs = (await db.execute(stmt_fb)).scalars().all()
+        assert len(fb_logs) == 1, "Exactly one consolidated log must be persisted for the fallback chain"
+        fb_log = fb_logs[0]
+        assert fb_log.provider == "groq"
+        assert fb_log.model == "llama-3.3-70b-versatile"
+        assert fb_log.fallback_triggered is True or fb_log.fallback_triggered == 1
+        assert fb_log.original_provider == "openai"
+        assert fb_log.original_model == "gpt-4o"
+        assert fb_log.fallback_reason == "upstream_429"
 
 
 @pytest.mark.asyncio

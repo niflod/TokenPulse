@@ -55,10 +55,11 @@ A auditoria comprovou que o TokenPulse Gateway opera como uma camada real, trans
    - Adicionado `("usage_source", "VARCHAR(32)")` na migração automática SQLite em `_migrate_sqlite_columns`.
 3. **`backend/routers/gateway.py`:**
    - Detecção de client disconnect durante streaming SSE via captura de `GeneratorExit` e `CancelledError`, gravando `status_code = 499` e `finish_reason = "cancelled"`.
-   - Propagação de `usage_source` ("reported" vs "unknown") na telemetria e no EventBus.
-   - Categorização estrita de timeouts upstream como `504` com mensagem `"provider_timeout"`.
+   - Propagação de `usage_source` ("reported" vs "unknown") na telemetria e no EventBus com verificação estrita de nulidade (`is not None`).
+   - Diferenciação precisa de erros de rede via `_classify_network_error`: `ConnectError` gera HTTP 502 (`provider_connect_error`) e `TimeoutException` gera HTTP 504 (`provider_timeout`), ambos propagando `X-TokenPulse-Request-Id`.
+   - Cálculo cirúrgico de TTFT disparado no recebimento de `delta_content` textual, evitando distorções causadas por chunks inaugurais de metadados de stream.
 4. **`tests/test_functional_audit.py`:**
-   - Suíte de 8 testes funcionais determinísticos validando os 8 tickets do briefing.
+   - Suíte de 8 testes funcionais determinísticos cobrindo: transparência de proxy, semântica nula de tokens, TTFT monotônico de streaming, cancelamento 499, erros upstream (400, 429 com Retry-After, 502 ConnectError), telemetria consolidada de fallback/cache, entrega SSE atômica e concorrência SQLite WAL.
 5. **`tests/test_fallback.py`:**
    - Ajustada consulta de log para correlacionar por `X-TokenPulse-Request-Id` com polling assíncrono resiliente.
 
