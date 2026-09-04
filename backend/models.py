@@ -107,6 +107,7 @@ class RequestLog(Base):
     cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    usage_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     # Failover & Fallback metadata
     fallback_triggered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

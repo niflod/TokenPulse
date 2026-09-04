@@ -122,16 +122,21 @@ async def test_gateway_failover_on_429():
             # Verify persisted RequestLog has fallback metadata
             from models import RequestLog
             import asyncio
-            await asyncio.sleep(0.1)  # Let async task persist
-            async with AsyncSessionLocal() as db:
-                stmt = select(RequestLog).order_by(RequestLog.id.desc()).limit(1)
-                log = (await db.execute(stmt)).scalar_one_or_none()
-                assert log is not None
-                assert log.fallback_triggered is True
-                assert log.original_provider == "openai"
-                assert log.original_model == "gpt-4o"
-                assert log.provider == "groq"
-                assert log.model == "llama-3.3-70b-versatile"
+            tp_req_id = res.headers.get("X-TokenPulse-Request-Id")
+            log = None
+            for _ in range(15):
+                await asyncio.sleep(0.1)
+                async with AsyncSessionLocal() as db:
+                    stmt = select(RequestLog).where(RequestLog.request_id == tp_req_id)
+                    log = (await db.execute(stmt)).scalar_one_or_none()
+                    if log:
+                        break
+            assert log is not None
+            assert log.fallback_triggered is True
+            assert log.original_provider == "openai"
+            assert log.original_model == "gpt-4o"
+            assert log.provider == "groq"
+            assert log.model == "llama-3.3-70b-versatile"
     finally:
         await mock_client.aclose()
 

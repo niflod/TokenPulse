@@ -286,10 +286,17 @@ async def _persist_gateway_telemetry(
     original_model: Optional[str] = None,
     fallback_reason: Optional[str] = None,
     cache_hit: bool = False,
+    usage_source: Optional[str] = None,
 ) -> None:
     """Saves telemetry asynchronously and emits event bus notification."""
     if not settings.telemetry_enabled:
         return
+
+    if usage_source is None:
+        if input_tokens is not None or output_tokens is not None or total_tokens is not None:
+            usage_source = "reported"
+        else:
+            usage_source = "unknown"
 
     if cache_hit:
         c_in, c_out, c_tot = 0.0, 0.0, 0.0
@@ -323,6 +330,7 @@ async def _persist_gateway_telemetry(
                 original_model=original_model,
                 fallback_reason=fallback_reason,
                 cache_hit=cache_hit,
+                usage_source=usage_source,
             )
             db.add(log_entry)
             await db.commit()
@@ -339,6 +347,7 @@ async def _persist_gateway_telemetry(
             "ttft_ms": round(ttft_ms, 1) if ttft_ms else None,
             "status": status_code,
             "cache_hit": bool(cache_hit),
+            "usage_source": usage_source,
         })
     except Exception as e:
         logger.error("Failed to save gateway telemetry: %s", redact_sensitive_text(str(e)))
@@ -776,6 +785,28 @@ async def _proxy_request(
                         if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
                             candidates[i + 1]["fallback_reason"] = "timeout"
                         continue
+                    asyncio.create_task(_persist_gateway_telemetry(
+                        provider=curr_prov,
+                        model=curr_mod,
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        latency_ms=(time.perf_counter() - start_time) * 1000,
+                        input_tokens=None,
+                        output_tokens=None,
+                        total_tokens=None,
+                        cached_tokens=None,
+                        reasoning_tokens=None,
+                        ttft_ms=None,
+                        stream_duration_ms=None,
+                        finish_reason="timeout",
+                        provider_request_id=None,
+                        tokenpulse_request_id=tp_req_id,
+                        error_msg="provider_timeout",
+                        fallback_triggered=bool(fb_reason),
+                        original_provider=clean_provider if fb_reason else None,
+                        original_model=model_name if fb_reason else None,
+                        fallback_reason=fb_reason,
+                        usage_source="unknown",
+                    ))
                     raise HTTPException(
                         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                         detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
@@ -895,6 +926,28 @@ async def _proxy_request(
                         if i + 1 < len(candidates) and not candidates[i + 1].get("fallback_reason"):
                             candidates[i + 1]["fallback_reason"] = "timeout"
                         continue
+                    asyncio.create_task(_persist_gateway_telemetry(
+                        provider=curr_prov,
+                        model=curr_mod,
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        latency_ms=(time.perf_counter() - start_time) * 1000,
+                        input_tokens=None,
+                        output_tokens=None,
+                        total_tokens=None,
+                        cached_tokens=None,
+                        reasoning_tokens=None,
+                        ttft_ms=None,
+                        stream_duration_ms=None,
+                        finish_reason="timeout",
+                        provider_request_id=None,
+                        tokenpulse_request_id=tp_req_id,
+                        error_msg="provider_timeout",
+                        fallback_triggered=bool(fb_reason),
+                        original_provider=clean_provider if fb_reason else None,
+                        original_model=model_name if fb_reason else None,
+                        fallback_reason=fb_reason,
+                        usage_source="unknown",
+                    ))
                     raise HTTPException(
                         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                         detail=f"Tempo limite esgotado ao comunicar com {curr_prov}.",
@@ -973,22 +1026,32 @@ async def _proxy_request(
                                                     finish_res = f_reason
                                         except Exception:
                                             pass
+                            if await request.is_disconnected():
+                                err_text = "Client disconnected during streaming"
+                                finish_res = "cancelled"
+                                break
                             yield chunk
 
-                    except asyncio.CancelledError:
+                    except (asyncio.CancelledError, GeneratorExit):
                         err_text = "Client disconnected during streaming"
+                        finish_res = "cancelled"
                         raise
                     except Exception as exc:
                         err_text = redact_sensitive_text(str(exc))
+                        finish_res = "error"
                         raise
                     finally:
                         await upstream_resp.aclose()
                         total_dur = (time.perf_counter() - start_time) * 1000
 
+                        final_status = upstream_resp.status_code
+                        if err_text:
+                            final_status = 499 if "Client disconnected" in err_text else 502
+
                         asyncio.create_task(_persist_gateway_telemetry(
                             provider=curr_prov,
                             model=curr_mod,
-                            status_code=upstream_resp.status_code if not err_text else 499,
+                            status_code=final_status,
                             latency_ms=total_dur,
                             input_tokens=tokens_in,
                             output_tokens=tokens_out,
@@ -1005,6 +1068,7 @@ async def _proxy_request(
                             original_provider=clean_provider if fb_reason else None,
                             original_model=model_name if fb_reason else None,
                             fallback_reason=fb_reason,
+                            usage_source="reported" if (tokens_in or tokens_out or tokens_tot) else "unknown",
                         ))
 
                         if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
