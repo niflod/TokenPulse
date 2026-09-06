@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TokenPulse — Login</title>
+  <title>TokenPulse — Criar Conta</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,18 +44,18 @@
       justify-content: center;
     }
 
-    .login-container {
+    .signup-container {
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
       padding: 2rem;
     }
 
-    .login-logo {
+    .signup-logo {
       text-align: center;
       margin-bottom: 2rem;
     }
 
-    .login-logo h1 {
+    .signup-logo h1 {
       font-size: 1.75rem;
       font-weight: 700;
       background: linear-gradient(135deg, var(--accent), var(--ai-accent));
@@ -64,20 +64,21 @@
       background-clip: text;
     }
 
-    .login-logo p {
+    .signup-logo p {
       color: var(--text-muted);
       font-size: 0.875rem;
       margin-top: 0.5rem;
     }
 
-    .login-card {
+    .signup-card {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-lg);
       padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     }
 
-    .login-card h2 {
+    .signup-card h2 {
       font-size: 1.125rem;
       font-weight: 600;
       margin-bottom: 1.5rem;
@@ -106,7 +107,7 @@
       font-family: var(--font-sans);
       font-size: 0.9375rem;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     .form-group input:focus {
@@ -114,107 +115,109 @@
       box-shadow: 0 0 0 3px rgba(77, 141, 255, 0.12);
     }
 
-    .btn-login {
+    .btn-signup {
       width: 100%;
       padding: 0.75rem;
       margin-top: 0.5rem;
       background: linear-gradient(135deg, var(--accent), var(--ai-accent));
       color: #fff;
-      font-family: var(--font-sans);
-      font-size: 0.9375rem;
-      font-weight: 600;
       border: none;
       border-radius: var(--radius-md);
+      font-size: 0.9375rem;
+      font-weight: 600;
       cursor: pointer;
       transition: opacity 0.2s, transform 0.1s;
     }
 
-    .btn-login:hover { opacity: 0.9; }
-    .btn-login:active { transform: scale(0.98); }
-    .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-signup:hover {
+      opacity: 0.92;
+    }
 
-    .error-msg {
-      margin-top: 1rem;
+    .btn-signup:active {
+      transform: scale(0.99);
+    }
+
+    .btn-signup:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .alert-msg {
       padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.8125rem;
+      margin-bottom: 1.25rem;
+      display: none;
+    }
+
+    .alert-error {
       background: var(--color-critical-bg);
       border: 1px solid var(--color-critical);
-      border-radius: var(--radius-md);
       color: var(--color-critical);
-      font-size: 0.8125rem;
-      display: none;
     }
 
-    .success-msg {
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      background: rgba(53, 208, 127, 0.12);
+    .alert-success {
+      background: rgba(53, 208, 127, 0.15);
       border: 1px solid var(--color-normal);
-      border-radius: var(--radius-md);
       color: var(--color-normal);
-      font-size: 0.8125rem;
-      display: none;
     }
 
-    .password-hint {
-      font-size: 0.75rem;
-      color: var(--text-dim);
-      margin-top: 0.375rem;
+    .auth-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .auth-footer a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .auth-footer a:hover {
+      text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <div class="login-logo">
-      <h1>⚡ TokenPulse</h1>
-      <p>Observe your AI</p>
+  <div class="signup-container">
+    <div class="signup-logo">
+      <h1>TokenPulse</h1>
+      <p>Observe your AI — Crie sua conta gratuita</p>
     </div>
 
-    <div class="login-card">
-      <!-- Setup form (first run) -->
-      <div id="setup-form" style="display:block;">
-        <h2>Criar Administrador</h2>
-        <form id="form-setup" autocomplete="off">
-          <div class="form-group">
-            <label for="setup-username">Usuário</label>
-            <input type="text" id="setup-username" placeholder="admin" required minlength="3" maxlength="64" autocomplete="username" />
-          </div>
-          <div class="form-group">
-            <label for="setup-password">Senha</label>
-            <input type="password" id="setup-password" placeholder="••••••••" required minlength="8" maxlength="128" autocomplete="new-password" />
-            <p class="password-hint">Mínimo 8 caracteres</p>
-          </div>
-          <div class="form-group">
-            <label for="setup-confirm">Confirmar Senha</label>
-            <input type="password" id="setup-confirm" placeholder="••••••••" required minlength="8" maxlength="128" autocomplete="new-password" />
-          </div>
-          <button type="submit" class="btn-login" id="btn-setup">Criar e Entrar</button>
-        </form>
-      </div>
+    <div class="signup-card">
+      <h2>Criar Nova Conta</h2>
 
-      <!-- Login form -->
-      <div id="login-form" style="display:none;">
-        <h2>Entrar</h2>
-        <form id="form-login" autocomplete="on">
-          <div class="form-group">
-            <label for="login-username">Usuário</label>
-            <input type="text" id="login-username" placeholder="admin" required autocomplete="username" />
-          </div>
-          <div class="form-group">
-            <label for="login-password">Senha</label>
-            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
-          </div>
-          <button type="submit" class="btn-login" id="btn-login">Entrar</button>
-          <div style="text-align: center; margin-top: 1.25rem; font-size: 0.875rem; color: var(--text-muted);">
-            Não tem uma conta? <a href="/signup.html" style="color: var(--accent); text-decoration: none; font-weight: 500;">Criar Conta</a>
-          </div>
-        </form>
-      </div>
+      <div id="error-msg" class="alert-msg alert-error"></div>
+      <div id="success-msg" class="alert-msg alert-success"></div>
 
-      <div id="error-msg" class="error-msg"></div>
-      <div id="success-msg" class="success-msg"></div>
+      <form id="signup-form">
+        <div class="form-group">
+          <label for="signup-username">Nome de Usuário</label>
+          <input type="text" id="signup-username" required autocomplete="username" placeholder="ex: dev_maria" minlength="3" maxlength="64" />
+        </div>
+
+        <div class="form-group">
+          <label for="signup-email">E-mail</label>
+          <input type="email" id="signup-email" required autocomplete="email" placeholder="seu@email.com" />
+        </div>
+
+        <div class="form-group">
+          <label for="signup-password">Senha</label>
+          <input type="password" id="signup-password" required autocomplete="new-password" placeholder="Mínimo de 8 caracteres" minlength="8" />
+        </div>
+
+        <button type="submit" id="signup-btn" class="btn-signup">Criar Conta</button>
+      </form>
+
+      <div class="auth-footer">
+        Já tem uma conta? <a href="/login.html">Fazer Login</a>
+      </div>
     </div>
   </div>
 
-  <script src="js/login.js?v=2.2.0"></script>
+  <script src="js/signup.js"></script>
 </body>
 </html>

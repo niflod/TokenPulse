@@ -14,14 +14,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import RequestLog
-from security import require_admin
+from models import RequestLog, User
+from routers.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
-SupportedProvider = Literal["openai", "anthropic", "gemini", "groq", "mistral", "ollama"]
+SupportedProvider = Literal["openai", "anthropic", "gemini", "groq", "mistral", "ollama", "openrouter"]
 
 
 class RequestLogIn(BaseModel):
@@ -67,11 +67,12 @@ async def get_logs(
     status_filter: Optional[str] = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Query paginated request logs with optional filters."""
-    q = select(RequestLog).order_by(RequestLog.timestamp.desc())
-    count_q = select(func.count(RequestLog.id))
+    q = select(RequestLog).where(RequestLog.user_id == current_user.id).order_by(RequestLog.timestamp.desc())
+    count_q = select(func.count(RequestLog.id)).where(RequestLog.user_id == current_user.id)
 
     if provider:
         q = q.where(RequestLog.provider == provider.lower())
@@ -122,8 +123,12 @@ async def get_logs(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
-async def record_log(data: RequestLogIn, db: AsyncSession = Depends(get_db)):
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def record_log(
+    data: RequestLogIn,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Record a single request log entry with strict input validation."""
     tot_tok = data.total_tokens
     if tot_tok is None and data.input_tokens is not None and data.output_tokens is not None:
@@ -134,6 +139,7 @@ async def record_log(data: RequestLogIn, db: AsyncSession = Depends(get_db)):
         tot_cost = round(data.cost_input + data.cost_output, 6)
 
     entry = RequestLog(
+        user_id=current_user.id,
         provider=data.provider.lower(),
         model=data.model,
         timestamp=datetime.now(timezone.utc),
@@ -150,36 +156,45 @@ async def record_log(data: RequestLogIn, db: AsyncSession = Depends(get_db)):
     )
     db.add(entry)
     await db.flush()
+    from services.aggregator import aggregator
+    aggregator.clear_cache()
     return {"status": "created", "id": entry.id}
 
 
-@router.delete("", dependencies=[Depends(require_admin)])
+@router.delete("")
 async def clear_logs(
     confirm: bool = Query(False),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Efficient bulk clear of request logs via direct SQL DELETE."""
+    """Efficient bulk clear of request logs for the authenticated user."""
     if not confirm:
         raise HTTPException(
             status_code=400,
             detail="É necessário passar ?confirm=true para apagar todos os logs.",
         )
-    await db.execute(delete(RequestLog))
+    await db.execute(delete(RequestLog).where(RequestLog.user_id == current_user.id))
+    from services.aggregator import aggregator
+    aggregator.clear_cache()
     return {"message": "Todos os logs foram apagados com sucesso."}
 
 
-@router.post("/prune", dependencies=[Depends(require_admin)])
+@router.post("/prune")
 async def prune_old_logs(
     days: Optional[int] = Query(None, ge=1),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Prune logs older than configured retention period (Requisito 35)."""
+    """Prune logs older than configured retention period for current user."""
     from datetime import timedelta
     from config import settings
 
     retention_days = days or settings.log_retention_days
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-    stmt = delete(RequestLog).where(RequestLog.timestamp < cutoff)
+    stmt = delete(RequestLog).where(
+        RequestLog.user_id == current_user.id,
+        RequestLog.timestamp < cutoff,
+    )
     res = await db.execute(stmt)
     return {"status": "pruned", "retention_days": retention_days, "deleted_count": res.rowcount}
 

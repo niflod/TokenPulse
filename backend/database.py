@@ -115,17 +115,61 @@ async def init_db() -> None:
                 ("fallback_reason", "VARCHAR(64)"),
                 ("cache_hit", "BOOLEAN DEFAULT 0"),
                 ("usage_source", "VARCHAR(32)"),
+                ("user_id", "INTEGER"),
             ]
             for col_name, col_type in new_cols:
                 if col_name not in existing_cols:
                     sync_conn.execute(text(f"ALTER TABLE request_logs ADD COLUMN {col_name} {col_type}"))
                     logger.info("Migrated SQLite: added column %s to request_logs", col_name)
 
+            # Migrate provider_configs
+            res_prov = sync_conn.execute(text("PRAGMA table_info(provider_configs)"))
+            prov_cols = {row[1] for row in res_prov.fetchall()}
+            for c_name, c_type in [
+                ("user_id", "INTEGER"),
+                ("last_synced_at", "TIMESTAMP"),
+                ("sync_status", "VARCHAR(32) DEFAULT 'idle'"),
+                ("sync_error", "TEXT"),
+            ]:
+                if c_name not in prov_cols:
+                    sync_conn.execute(text(f"ALTER TABLE provider_configs ADD COLUMN {c_name} {c_type}"))
+                    logger.info("Migrated SQLite: added column %s to provider_configs", c_name)
+
+            # Drop legacy unique index on name to allow per-user provider configurations
+            try:
+                sync_conn.execute(text("DROP INDEX IF EXISTS ix_provider_configs_name"))
+                sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_configs_name ON provider_configs (name)"))
+            except Exception as ex:
+                logger.warning("Could not recreate index on provider_configs: %s", ex)
+
+            # Migrate alert_configs
             res_alerts = sync_conn.execute(text("PRAGMA table_info(alert_configs)"))
             alert_cols = {row[1] for row in res_alerts.fetchall()}
-            if "webhook_url" not in alert_cols:
-                sync_conn.execute(text("ALTER TABLE alert_configs ADD COLUMN webhook_url VARCHAR(512)"))
-                logger.info("Migrated SQLite: added column webhook_url to alert_configs")
+            for c_name, c_type in [("webhook_url", "VARCHAR(512)"), ("user_id", "INTEGER")]:
+                if c_name not in alert_cols:
+                    sync_conn.execute(text(f"ALTER TABLE alert_configs ADD COLUMN {c_name} {c_type}"))
+                    logger.info("Migrated SQLite: added column %s to alert_configs", c_name)
+
+            # Migrate users
+            res_users = sync_conn.execute(text("PRAGMA table_info(users)"))
+            user_cols = {row[1] for row in res_users.fetchall()}
+            if "email" not in user_cols:
+                sync_conn.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(256)"))
+                logger.info("Migrated SQLite: added column email to users")
+
+            # Migrate client_api_keys
+            res_keys = sync_conn.execute(text("PRAGMA table_info(client_api_keys)"))
+            key_cols = {row[1] for row in res_keys.fetchall()}
+            if "user_id" not in key_cols:
+                sync_conn.execute(text("ALTER TABLE client_api_keys ADD COLUMN user_id INTEGER"))
+                logger.info("Migrated SQLite: added column user_id to client_api_keys")
+
+            # Migrate fallback_rules
+            res_fb = sync_conn.execute(text("PRAGMA table_info(fallback_rules)"))
+            fb_cols = {row[1] for row in res_fb.fetchall()}
+            if "user_id" not in fb_cols:
+                sync_conn.execute(text("ALTER TABLE fallback_rules ADD COLUMN user_id INTEGER"))
+                logger.info("Migrated SQLite: added column user_id to fallback_rules")
 
         if "sqlite" in settings.database_url:
             await conn.run_sync(_migrate_sqlite_columns)

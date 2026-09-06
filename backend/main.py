@@ -34,6 +34,7 @@ from routers.api_keys import router as api_keys_router
 from routers.auth import router as auth_router
 from routers.cache_router import router as cache_router
 from routers.fallback_rules import router as fallback_rules_router
+from routers.sync import router as sync_router
 from services.aggregator import aggregator
 
 logging.basicConfig(
@@ -148,6 +149,7 @@ async def add_security_headers(request, call_next):
 # Paths that bypass JWT authentication (handled by own auth or public)
 _PUBLIC_PREFIXES = (
     "/api/auth/login",
+    "/api/auth/register",
     "/api/auth/setup",
     "/api/auth/status",
     "/api/ping",
@@ -195,14 +197,16 @@ async def jwt_auth_middleware(request, call_next):
     if token:
         try:
             from routers.auth import decode_access_token
-            decode_access_token(token)
-            return await call_next(request)
+            payload = decode_access_token(token)
+            request.state.username = payload.get("sub")
+            request.state.user_id = payload.get("user_id")
         except Exception:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Token inválido ou expirado."},
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        return await call_next(request)
 
     # Also accept X-Admin-Key for backwards compatibility
     admin_key = request.headers.get("x-admin-key", "")
@@ -219,6 +223,7 @@ async def jwt_auth_middleware(request, call_next):
 
 # Register API Routers
 app.include_router(auth_router)
+app.include_router(sync_router)
 app.include_router(api_keys_router)
 app.include_router(cache_router)
 app.include_router(fallback_rules_router)

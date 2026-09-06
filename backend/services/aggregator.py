@@ -71,6 +71,9 @@ class AggregatorService:
     def set_cached(self, key: str, data: Any, ttl_seconds: int = 30) -> None:
         self._cache[key] = (data, time.time() + ttl_seconds)
 
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
     # -------------------------------------------------------------------------
     # Database Metrics Aggregation
     # -------------------------------------------------------------------------
@@ -80,6 +83,7 @@ class AggregatorService:
         db: AsyncSession,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> dict:
         """
         Aggregate usage for Today, Week, Month and group by Model and Provider.
@@ -110,6 +114,8 @@ class AggregatorService:
                 ).label("errors"),
             ).where(RequestLog.timestamp >= start_dt)
 
+            if user_id is not None:
+                q = q.where(RequestLog.user_id == user_id)
             if provider:
                 q = q.where(RequestLog.provider == provider)
             if model:
@@ -157,6 +163,8 @@ class AggregatorService:
             .group_by(RequestLog.model, RequestLog.provider)
             .order_by(func.count(RequestLog.id).desc())
         )
+        if user_id is not None:
+            q_models = q_models.where(RequestLog.user_id == user_id)
         if provider:
             q_models = q_models.where(RequestLog.provider == provider)
 
@@ -190,8 +198,10 @@ class AggregatorService:
                 func.avg(RequestLog.latency_ms).label("avg_latency"),
             )
             .where(RequestLog.timestamp >= month_start)
-            .group_by(RequestLog.provider)
         )
+        if user_id is not None:
+            q_providers = q_providers.where(RequestLog.user_id == user_id)
+        q_providers = q_providers.group_by(RequestLog.provider)
         res_providers = (await db.execute(q_providers)).all()
         by_provider = [
             {
@@ -246,6 +256,7 @@ class AggregatorService:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         hours: int = 24,
+        user_id: Optional[int] = None,
     ) -> list[dict]:
         """
         Generate hourly aggregated points for the charts.
@@ -279,6 +290,8 @@ class AggregatorService:
             .order_by(hour_bucket)
         )
 
+        if user_id is not None:
+            q = q.where(RequestLog.user_id == user_id)
         if provider:
             q = q.where(RequestLog.provider == provider)
         if model:

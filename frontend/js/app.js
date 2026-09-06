@@ -596,6 +596,31 @@ const App = {
     document.getElementById('btn-refresh')?.addEventListener('click', () => this.refresh());
     document.getElementById('btn-retry-dashboard')?.addEventListener('click', () => this.refresh());
 
+    // Direct Provider Sync Button
+    document.getElementById('btn-sync-now')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-sync-now');
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader-2" class="spin"></i> <span>Sincronizando...</span>';
+      if (window.lucide) lucide.createIcons();
+
+      Alerts.toast('Sincronizando faturamento e consumo com os provedores...', 'info', 3000);
+      const { data, error } = await API.syncNow();
+
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (window.lucide) lucide.createIcons();
+
+      if (error) {
+        Alerts.toast(`Falha na sincronização: ${error.message}`, 'error');
+      } else {
+        const count = data?.synced_providers?.length || 0;
+        Alerts.toast(`Sincronização concluída! (${count} provedor(es) sincronizados)`, 'success');
+        await Providers.load();
+        await this.refresh();
+      }
+    });
+
     // Demo Mode Toggles
     document.getElementById('btn-toggle-demo')?.addEventListener('click', () => {
       this._isDemoMode = !this._isDemoMode;
@@ -746,6 +771,41 @@ const App = {
       const inp = document.getElementById('input-provider-key');
       if (inp) {
         inp.type = inp.type === 'password' ? 'text' : 'password';
+      }
+    });
+
+    // Settings: Test Provider Connection
+    document.getElementById('btn-test-provider')?.addEventListener('click', async () => {
+      const type = document.getElementById('input-provider-type').value;
+      const key = document.getElementById('input-provider-key').value;
+      const url = document.getElementById('input-provider-url').value;
+
+      if (!key) {
+        Alerts.toast('Insira a API Key para testar a conexão.', 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('btn-test-provider');
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = 'Testando conexão...';
+
+      const { data, error } = await API.validateProvider({
+        name: type,
+        api_key: key,
+        base_url: url || null,
+      });
+
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (window.lucide) lucide.createIcons();
+
+      if (error) {
+        Alerts.toast(`Falha na validação: ${error.message}`, 'error');
+      } else if (data && data.valid) {
+        Alerts.toast(data.message || 'Conexão validada com sucesso!', 'success');
+      } else {
+        Alerts.toast(data?.message || 'Chave rejeitada pelo provedor.', 'error');
       }
     });
 

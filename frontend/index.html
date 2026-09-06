@@ -120,9 +120,15 @@
           </div>
 
           <!-- Refresh Button -->
-          <button id="btn-refresh" class="btn btn-secondary btn-icon" title="Atualizar dados agora">
+          <button id="btn-refresh" class="btn btn-secondary btn-icon" title="Atualizar dados locais">
             <i data-lucide="refresh-cw" id="icon-refresh"></i>
             <span>Atualizar</span>
+          </button>
+
+          <!-- Direct Provider Usage Sync Button -->
+          <button id="btn-sync-now" class="btn btn-primary" title="Sincronizar faturamento e consumo dos provedores agora">
+            <i data-lucide="cloud-download" id="icon-sync-now"></i>
+            <span>Sincronizar Agora</span>
           </button>
 
           <!-- Export Dropdown -->
@@ -549,6 +555,7 @@
                 <label for="input-provider-type">Provedor</label>
                 <select id="input-provider-type" class="form-control" required>
                   <option value="openai">OpenAI</option>
+                  <option value="openrouter">OpenRouter</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="gemini">Google Gemini</option>
                   <option value="groq">Groq</option>
@@ -576,7 +583,11 @@
                 <input type="url" id="input-provider-url" class="form-control" placeholder="https://api.openai.com/v1" />
               </div>
 
-              <div class="form-actions">
+              <div class="form-actions flex-row gap-2">
+                <button type="button" class="btn btn-secondary" id="btn-test-provider">
+                  <i data-lucide="shield-check"></i>
+                  <span>Testar Conexão</span>
+                </button>
                 <button type="submit" class="btn btn-primary" id="btn-save-provider">
                   <i data-lucide="plus"></i>
                   <span>Salvar Provedor</span>

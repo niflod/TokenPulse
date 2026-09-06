@@ -21,6 +21,7 @@ async def detect_anomalies(
     window_minutes: int = 15,
     baseline_minutes: int = 60,
     threshold_multiplier: float = 2.0,
+    user_id: Optional[int] = None,
 ) -> List[dict]:
     """
     Detect spikes in requests, tokens, error rates, and latencies
@@ -50,8 +51,10 @@ async def detect_anomalies(
                 func.avg(RequestLog.latency_ms).label("avg_latency"),
             )
             .where(RequestLog.timestamp >= recent_start)
-            .group_by(RequestLog.provider, RequestLog.model)
         )
+        if user_id is not None:
+            q_recent = q_recent.where(RequestLog.user_id == user_id)
+        q_recent = q_recent.group_by(RequestLog.provider, RequestLog.model)
         res_recent = (await db.execute(q_recent)).all()
 
         # 2. Query metrics for Baseline window
@@ -71,8 +74,10 @@ async def detect_anomalies(
                 func.avg(RequestLog.latency_ms).label("avg_latency"),
             )
             .where(RequestLog.timestamp >= baseline_start, RequestLog.timestamp < recent_start)
-            .group_by(RequestLog.provider, RequestLog.model)
         )
+        if user_id is not None:
+            q_base = q_base.where(RequestLog.user_id == user_id)
+        q_base = q_base.group_by(RequestLog.provider, RequestLog.model)
         res_base = (await db.execute(q_base)).all()
 
         base_map = {

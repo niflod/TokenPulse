@@ -27,12 +27,16 @@ class ProviderConfig(Base):
     __tablename__ = "provider_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     # The API key is stored encrypted; never store plaintext
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, default="idle")
+    sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -82,6 +86,7 @@ class RequestLog(Base):
     __tablename__ = "request_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     timestamp: Mapped[datetime] = mapped_column(
@@ -125,6 +130,7 @@ class AlertConfig(Base):
     __tablename__ = "alert_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     # 'all' means the alert applies to every provider
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="all")
     # e.g. 'daily_usage_pct', 'error_rate', 'latency_ms'
@@ -138,12 +144,13 @@ class AlertConfig(Base):
 
 
 class User(Base):
-    """Admin user for dashboard authentication."""
+    """User for dashboard authentication (supports multi-tenant SaaS)."""
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(256), unique=True, nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -168,6 +175,7 @@ class ClientApiKey(Base):
     __tablename__ = "client_api_keys"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
@@ -187,6 +195,7 @@ class FallbackRule(Base):
     __tablename__ = "fallback_rules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     source_provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     source_model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     target_provider: Mapped[str] = mapped_column(String(64), nullable=False)

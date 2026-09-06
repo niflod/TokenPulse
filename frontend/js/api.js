@@ -4,6 +4,8 @@
 
 const API = {
   BASE_URL: (() => {
+    const customApi = localStorage.getItem('tp_api_url');
+    if (customApi) return customApi.replace(/\/+$/, '');
     if (window.location.protocol === 'file:') return 'http://127.0.0.1:8000';
     if (window.location.port !== '8000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
       return `http://${window.location.hostname}:8000`;
@@ -40,11 +42,14 @@ const API = {
       const res = await fetch(url, config);
       clearTimeout(timeoutId);
 
-      // Redirect to login on authentication failure
+      // Redirect to login on authentication failure (guard against loop on auth pages)
       if (res.status === 401) {
         localStorage.removeItem('tp_token');
         localStorage.removeItem('tp_username');
-        window.location.href = '/login.html';
+        const path = window.location.pathname;
+        if (!path.endsWith('login.html') && !path.endsWith('signup.html')) {
+          window.location.href = '/login.html';
+        }
         return { data: null, error: { status: 401, message: 'Sessão expirada.' } };
       }
 
@@ -88,6 +93,20 @@ const API = {
     return this._request('/api/providers', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async validateProvider(payload) {
+    return this._request('/api/providers/validate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async syncNow(provider = null) {
+    return this._request('/api/sync/now', {
+      method: 'POST',
+      body: JSON.stringify({ provider }),
     });
   },
 

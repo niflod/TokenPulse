@@ -72,18 +72,36 @@ const Providers = {
       const strong = document.createElement('strong');
       strong.textContent = p.display_name || p.name.toUpperCase();
 
-      const badge = document.createElement('span');
-      badge.className = 'badge-tag';
-      badge.style.marginLeft = '8px';
-      badge.textContent = p.name;
+      const typeBadge = document.createElement('span');
+      typeBadge.className = 'badge-tag';
+      typeBadge.style.marginLeft = '8px';
+      typeBadge.textContent = p.name;
+
+      const connBadge = document.createElement('span');
+      connBadge.className = p.has_api_key ? 'badge-tag text-success' : 'badge-tag text-warning';
+      connBadge.style.marginLeft = '6px';
+      connBadge.textContent = p.has_api_key ? 'Conectado' : 'Sem Chave';
 
       const keyStatus = document.createElement('div');
       keyStatus.style.fontSize = '11px';
       keyStatus.style.color = 'var(--text-dim)';
       keyStatus.style.marginTop = '2px';
-      keyStatus.textContent = p.has_api_key ? 'Chave: •••••••• (Criptografada via Fernet)' : 'Chave: Não configurada';
+      keyStatus.textContent = p.has_api_key
+        ? `Chave: ${p.masked_key || '••••••••'} (Criptografada via Fernet)`
+        : 'Chave: Não configurada';
       if (!p.has_api_key) {
         keyStatus.className = 'text-warning';
+      }
+
+      const syncStatus = document.createElement('div');
+      syncStatus.style.fontSize = '11px';
+      syncStatus.style.marginTop = '2px';
+      syncStatus.style.color = p.sync_status === 'error' ? 'var(--danger)' : 'var(--text-dim)';
+      syncStatus.textContent = p.last_synced_at
+        ? `Sincronização: ${new Date(p.last_synced_at).toLocaleString()}`
+        : 'Sincronização: Nenhuma';
+      if (p.sync_error) {
+        syncStatus.textContent += ` — Erro: ${p.sync_error}`;
       }
 
       const gwBase = p.name === 'openai'
@@ -104,8 +122,10 @@ const Providers = {
       });
 
       leftCol.appendChild(strong);
-      leftCol.appendChild(badge);
+      leftCol.appendChild(typeBadge);
+      leftCol.appendChild(connBadge);
       leftCol.appendChild(keyStatus);
+      leftCol.appendChild(syncStatus);
       leftCol.appendChild(gwInfo);
 
       const rightCol = document.createElement('div');

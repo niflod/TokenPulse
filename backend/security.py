@@ -26,6 +26,7 @@ OFFICIAL_PROVIDER_DOMAINS = {
     "groq": ["api.groq.com"],
     "mistral": ["api.mistral.ai"],
     "ollama": ["localhost", "127.0.0.1"],
+    "openrouter": ["openrouter.ai"],
 }
 
 # Private and reserved IP blocks for SSRF prevention

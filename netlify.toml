@@ -1,0 +1,38 @@
+# Netlify Configuration for TokenPulse Web SaaS
+
+[build]
+  publish = "frontend"
+
+# Reverse Proxy for API requests to the cloud backend (eliminates CORS)
+# Replace the URL below or configure rewrite in Netlify settings
+[[redirects]]
+  from = "/api/*"
+  to = "https://tokenpulse-backend.onrender.com/api/:splat"
+  status = 200
+  force = true
+  headers = {X-From = "Netlify"}
+
+# Static pages routing
+[[redirects]]
+  from = "/signup"
+  to = "/signup.html"
+  status = 200
+
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
