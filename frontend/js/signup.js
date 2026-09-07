@@ -3,11 +3,13 @@
  */
 
 const API_BASE = (() => {
+  const customApi = localStorage.getItem('tp_api_url');
+  if (customApi) return customApi.replace(/\/+$/, '');
   if (window.location.protocol === 'file:') return 'http://127.0.0.1:8000';
   if (window.location.port !== '8000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     return `http://${window.location.hostname}:8000`;
   }
-  return window.location.origin;
+  return '';
 })();
 
 const DASHBOARD_URL = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/' : '/';
@@ -62,16 +64,33 @@ document.addEventListener('DOMContentLoaded', () => {
       if (signupBtn) signupBtn.disabled = true;
 
       try {
-        const res = await fetch(`${API_BASE}/api/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, email, password }),
-        });
+        let data = null;
+        let errorMsg = null;
 
-        const data = await res.json();
+        if (window.API && typeof API.register === 'function') {
+          const res = await API.register(username, email, password);
+          if (res.error) {
+            errorMsg = res.error.message || 'Falha ao criar conta.';
+          } else {
+            data = res.data;
+          }
+        } else {
+          const url = `${API_BASE}/api/auth/register`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            errorMsg = body.detail || 'Falha ao criar conta.';
+          } else {
+            data = body;
+          }
+        }
 
-        if (!res.ok) {
-          showError(data.detail || 'Falha ao criar conta.');
+        if (errorMsg) {
+          showError(errorMsg);
           if (signupBtn) signupBtn.disabled = false;
           return;
         }

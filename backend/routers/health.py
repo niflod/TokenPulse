@@ -6,26 +6,32 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import ProviderConfig
+from models import ProviderConfig, User
+from routers.auth import get_current_user
 from services.aggregator import aggregator
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 
 @router.get("")
-async def get_health_status(db: AsyncSession = Depends(get_db)):
+async def get_health_status(
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """
     Check connection status and latency for all registered and configured providers.
     Never fails the whole endpoint if a single provider is offline.
     """
     stmt = select(ProviderConfig).where(ProviderConfig.enabled == True)
+    if user and user.id:
+        stmt = stmt.where(or_(ProviderConfig.user_id == user.id, ProviderConfig.user_id.is_(None)))
     providers = (await db.execute(stmt)).scalars().all()
 
     results = []
@@ -35,7 +41,7 @@ async def get_health_status(db: AsyncSession = Depends(get_db)):
     # Ensure all enabled providers are in aggregator
     for p in providers:
         p_name = p.name.lower()
-        adapter = aggregator.get_adapter(p_name)
+        adapter = aggregator.get_adapter(p_name, user_id=p.user_id)
         if adapter:
             tasks.append(adapter.get_health())
             p_names.append(p_name)

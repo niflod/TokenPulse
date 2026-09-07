@@ -35,7 +35,8 @@ async def sync_openai_usage(
     start_date = (now - timedelta(days=7)).strftime("%Y-%m-%d")
     end_date = now.strftime("%Y-%m-%d")
 
-    base_url = (provider.base_url or "https://api.openai.com/v1").rstrip("/")
+    validated_url = validate_provider_base_url("openai", provider.base_url)
+    base_url = (validated_url or "https://api.openai.com/v1").rstrip("/")
     headers = {"Authorization": f"Bearer {raw_key}"}
 
     records_ingested = 0
@@ -178,7 +179,8 @@ async def sync_openrouter_usage(
     """
     now = datetime.now(timezone.utc)
     today_str = now.strftime("%Y-%m-%d")
-    base_url = (provider.base_url or "https://openrouter.ai/api/v1").rstrip("/")
+    validated_url = validate_provider_base_url("openrouter", provider.base_url)
+    base_url = (validated_url or "https://openrouter.ai/api/v1").rstrip("/")
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -245,7 +247,12 @@ async def sync_anthropic_usage(
             )
             if resp.status_code == 200:
                 models = resp.json().get("data", [])
-                return {"status": "synced", "models_available": len(models)}
+                return {
+                    "status": "synced",
+                    "records_ingested": 0,
+                    "models_available": len(models),
+                    "note": "Conexão verificada. Provedor monitorado em tempo real.",
+                }
             return {"status": "error", "error": f"HTTP {resp.status_code}"}
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -268,7 +275,12 @@ async def sync_gemini_usage(
             )
             if resp.status_code == 200:
                 models = resp.json().get("models", [])
-                return {"status": "synced", "models_available": len(models)}
+                return {
+                    "status": "synced",
+                    "records_ingested": 0,
+                    "models_available": len(models),
+                    "note": "Conexão verificada. Provedor monitorado em tempo real.",
+                }
             return {"status": "error", "error": f"HTTP {resp.status_code}"}
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
@@ -291,7 +303,12 @@ async def sync_groq_usage(
             )
             if resp.status_code == 200:
                 models = resp.json().get("data", [])
-                return {"status": "synced", "models_available": len(models)}
+                return {
+                    "status": "synced",
+                    "records_ingested": 0,
+                    "models_available": len(models),
+                    "note": "Conexão verificada. Provedor monitorado em tempo real.",
+                }
             return {"status": "error", "error": f"HTTP {resp.status_code}"}
     except Exception as exc:
         return {"status": "error", "error": str(exc)}

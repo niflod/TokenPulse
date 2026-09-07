@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
-from models import AlertConfig
+from models import AlertConfig, User
+from routers.auth import get_current_user
 from security import require_admin
 from services.aggregator import aggregator
 from services.anomaly import detect_anomalies
@@ -44,14 +45,17 @@ class AlertConfigOut(BaseModel):
 
 
 @router.get("")
-async def get_active_alerts(db: AsyncSession = Depends(get_db)):
+async def get_active_alerts(
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Evaluate metric thresholds against active summary and combine with anomaly detections."""
     # 1. Fetch configured alert rules
     stmt = select(AlertConfig).where(AlertConfig.enabled == True)
     rules = (await db.execute(stmt)).scalars().all()
 
     # 2. Fetch current metrics summary
-    metrics = await aggregator.get_metrics_summary(db)
+    metrics = await aggregator.get_metrics_summary(db, user_id=user.id if user else None)
     today = metrics["summary"]["today"]
     limits = metrics["limits"]
 
@@ -99,7 +103,7 @@ async def get_active_alerts(db: AsyncSession = Depends(get_db)):
                     asyncio.create_task(dispatch_alert_webhook(alert_item, custom_url=r.webhook_url))
 
     # 3. Add anomaly detections
-    anomalies = await detect_anomalies(db, window_minutes=15)
+    anomalies = await detect_anomalies(db, window_minutes=15, user_id=user.id if user else None)
     for i, a in enumerate(anomalies):
         anomaly_item = {
             "id": f"anomaly-{i}",

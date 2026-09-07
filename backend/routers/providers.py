@@ -221,9 +221,9 @@ async def upsert_provider(
         raw_key = target.decrypt_key(secret)
 
     if target.enabled:
-        aggregator.register_provider(target.name, api_key=raw_key, base_url=target.base_url)
+        aggregator.register_provider(target.name, api_key=raw_key, base_url=target.base_url, user_id=target.user_id)
     else:
-        aggregator.unregister_provider(target.name)
+        aggregator.unregister_provider(target.name, user_id=target.user_id)
 
     return ProviderResponse(
         id=target.id,
@@ -258,7 +258,7 @@ async def delete_provider(
         raise HTTPException(status_code=404, detail="Provedor não encontrado")
 
     await db.delete(existing)
-    aggregator.unregister_provider(clean_name)
+    aggregator.unregister_provider(clean_name, user_id=existing.user_id)
 
 
 @router.put("/{name}/toggle", response_model=ProviderResponse)
@@ -285,9 +285,9 @@ async def toggle_provider(
     secret = settings.get_fernet_key()
     if provider.enabled:
         raw_key = provider.decrypt_key(secret)
-        aggregator.register_provider(provider.name, api_key=raw_key, base_url=provider.base_url)
+        aggregator.register_provider(provider.name, api_key=raw_key, base_url=provider.base_url, user_id=provider.user_id)
     else:
-        aggregator.unregister_provider(provider.name)
+        aggregator.unregister_provider(provider.name, user_id=provider.user_id)
 
     return ProviderResponse(
         id=provider.id,

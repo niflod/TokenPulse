@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
 
         for p in providers:
             raw_key = p.decrypt_key(secret)
-            aggregator.register_provider(p.name, api_key=raw_key, base_url=p.base_url)
+            aggregator.register_provider(p.name, api_key=raw_key, base_url=p.base_url, user_id=p.user_id)
 
         # 3. Check for pre-configured env keys if not already in DB
         env_providers = [

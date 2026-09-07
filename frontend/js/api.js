@@ -81,6 +81,13 @@ const API = {
     }
   },
 
+  async register(username, email, password) {
+    return this._request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password }),
+    });
+  },
+
   async ping() {
     return this._request('/api/ping');
   },

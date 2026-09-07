@@ -10,11 +10,12 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import ProviderConfig, RequestLog
+from models import ProviderConfig, RequestLog, User
+from routers.auth import get_current_user
 from services.aggregator import aggregator
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 async def list_models(
     provider: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """
     Query available models across all enabled providers and merge with real usage stats.
@@ -33,6 +35,8 @@ async def list_models(
     stmt = select(ProviderConfig).where(ProviderConfig.enabled == True)
     if provider:
         stmt = stmt.where(ProviderConfig.name == provider.lower())
+    if user and user.id:
+        stmt = stmt.where(or_(ProviderConfig.user_id == user.id, ProviderConfig.user_id.is_(None)))
     providers = (await db.execute(stmt)).scalars().all()
 
     # Query DB stats for past 30 days
@@ -57,8 +61,10 @@ async def list_models(
             func.max(RequestLog.timestamp).label("last_used"),
         )
         .where(RequestLog.timestamp >= month_start)
-        .group_by(RequestLog.model, RequestLog.provider)
     )
+    if user and user.id:
+        q_stats = q_stats.where(or_(RequestLog.user_id == user.id, RequestLog.user_id.is_(None)))
+    q_stats = q_stats.group_by(RequestLog.model, RequestLog.provider)
     db_stats_rows = (await db.execute(q_stats)).all()
     stats_map = {
         (r.provider.lower(), r.model.lower()): r
@@ -68,7 +74,7 @@ async def list_models(
     # Fetch live models from adapters
     tasks = []
     for p in providers:
-        adapter = aggregator.get_adapter(p.name.lower())
+        adapter = aggregator.get_adapter(p.name.lower(), user_id=p.user_id)
         if adapter:
             tasks.append(adapter.get_models())
 
@@ -134,9 +140,11 @@ async def get_model_detail(
     provider: str,
     model_id: str,
     db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """Deep metrics and percentiles for a specific model."""
     clean_provider = provider.lower()
+    uid = user.id if user else None
     
     # Query all requests for this model
     q = (
@@ -145,14 +153,16 @@ async def get_model_detail(
             RequestLog.provider == clean_provider,
             RequestLog.model == model_id,
         )
-        .order_by(RequestLog.timestamp.desc())
     )
+    if uid:
+        q = q.where(or_(RequestLog.user_id == uid, RequestLog.user_id.is_(None)))
+    q = q.order_by(RequestLog.timestamp.desc())
     logs = (await db.execute(q)).scalars().all()
 
     total_reqs = len(logs)
     if total_reqs == 0:
         # Check if adapter knows the model metadata
-        adapter = aggregator.get_adapter(clean_provider)
+        adapter = aggregator.get_adapter(clean_provider, user_id=uid)
         meta = None
         if adapter:
             models = await adapter.get_models()

@@ -30,10 +30,18 @@ class AggregatorService:
         self._adapters: Dict[str, ProviderAdapter] = {}
         self._cache: Dict[str, tuple[Any, float]] = {}  # key -> (data, expire_timestamp)
 
+    def _adapter_key(self, name: str, user_id: Optional[int] = None) -> str:
+        clean_name = name.lower().strip()
+        return f"{user_id}:{clean_name}" if user_id is not None else clean_name
+
     def register_provider(
-        self, name: str, api_key: Optional[str] = None, base_url: Optional[str] = None
+        self,
+        name: str,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Optional[ProviderAdapter]:
-        """Instantiate and register an adapter for a provider."""
+        """Instantiate and register an adapter for a provider, isolated by user_id."""
         adapter: Optional[ProviderAdapter] = None
         clean_name = name.lower().strip()
 
@@ -45,15 +53,27 @@ class AggregatorService:
             adapter = GeminiAdapter(api_key=api_key, base_url=base_url)
 
         if adapter:
-            self._adapters[clean_name] = adapter
-            logger.info("Registered provider adapter: %s", clean_name)
+            key = self._adapter_key(clean_name, user_id)
+            self._adapters[key] = adapter
+            if user_id is None:
+                self._adapters[clean_name] = adapter
+            logger.info("Registered provider adapter: %s (user_id=%s)", clean_name, user_id)
         return adapter
 
-    def get_adapter(self, name: str) -> Optional[ProviderAdapter]:
-        return self._adapters.get(name.lower().strip())
+    def get_adapter(self, name: str, user_id: Optional[int] = None) -> Optional[ProviderAdapter]:
+        clean_name = name.lower().strip()
+        if user_id is not None:
+            user_key = self._adapter_key(clean_name, user_id)
+            if user_key in self._adapters:
+                return self._adapters[user_key]
+        return self._adapters.get(clean_name)
 
-    def unregister_provider(self, name: str) -> None:
-        self._adapters.pop(name.lower().strip(), None)
+    def unregister_provider(self, name: str, user_id: Optional[int] = None) -> None:
+        clean_name = name.lower().strip()
+        if user_id is not None:
+            self._adapters.pop(self._adapter_key(clean_name, user_id), None)
+        else:
+            self._adapters.pop(clean_name, None)
 
     def get_registered_providers(self) -> List[str]:
         return list(self._adapters.keys())
