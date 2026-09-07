@@ -169,8 +169,8 @@ async def jwt_auth_middleware(request, call_next):
 
     path = request.url.path
 
-    # Allow static files and public API paths
-    if path == "/" or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+    # Allow static files, web pages and public API paths
+    if path in ("/", "/dashboard", "/app") or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
         return await call_next(request)
 
     # Allow static file extensions (CSS, JS, images, fonts)
@@ -248,8 +248,18 @@ async def ping():
     }
 
 
-# Mount frontend static files if directory exists
+# Mount clean web routes for SaaS
 frontend_path = Path(__file__).parent.parent / "frontend"
+
+@app.get("/dashboard", include_in_schema=False)
+@app.get("/app", include_in_schema=False)
+async def serve_dashboard():
+    from starlette.responses import FileResponse
+    dashboard_file = frontend_path / "dashboard.html"
+    if dashboard_file.exists():
+        return FileResponse(str(dashboard_file))
+    return FileResponse(str(frontend_path / "index.html"))
+
 if frontend_path.exists():
     app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
     logger.info("Mounted frontend static files from %s", frontend_path)

@@ -14,6 +14,16 @@
 
 # Static pages routing
 [[redirects]]
+  from = "/dashboard"
+  to = "/dashboard.html"
+  status = 200
+
+[[redirects]]
+  from = "/app"
+  to = "/dashboard.html"
+  status = 200
+
+[[redirects]]
   from = "/signup"
   to = "/signup.html"
   status = 200

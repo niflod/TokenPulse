@@ -3,922 +3,961 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TokenPulse — Observe your AI</title>
+  <title>TokenPulse — Observe your AI | Observabilidade e Custos de IA</title>
   
-  <!-- Font Inter -->
+  <!-- Fontes Google: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Style with cache buster -->
-  <link rel="stylesheet" href="css/style.css?v=2.0.0" />
+  <style>
+    :root {
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --bg-app:         #080A0F;
+      --bg-card:        #0D1118;
+      --bg-card-hover:  #111827;
+      --bg-input:       #111827;
+      --border-color:   #1B2330;
+      --border-focus:   #4D8DFF;
+
+      --text-main:      #F5F7FA;
+      --text-muted:     #9AA4B2;
+      --text-dim:       #4D5A6E;
+
+      --accent:         #4D8DFF;
+      --accent-hover:   #3A7AEF;
+      --accent-glow:    rgba(77, 141, 255, 0.25);
+      --ai-accent:      #8B7CFF;
+      --ai-accent-bg:   rgba(139, 124, 255, 0.12);
+
+      --color-normal:   #35D07F;
+      --color-warning:  #F5B942;
+      --color-critical: #FF5C6C;
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg-app);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* ── Header / Navbar ────────────────────────────────────────────── */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8, 10, 15, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      height: 72px;
+      display: flex;
+      align-items: center;
+    }
+
+    .nav-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon-box {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .brand-title {
+      background: linear-gradient(135deg, #fff, #C3D4FF);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-link {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .nav-link:hover {
+      color: #fff;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .btn-ghost {
+      color: var(--text-main);
+      background: transparent;
+    }
+
+    .btn-ghost:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      color: #fff;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(77, 141, 255, 0.35);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+
+    /* ── Hero Section ───────────────────────────────────────────────── */
+    .hero-section {
+      padding: 5rem 0 4rem;
+      position: relative;
+      text-align: center;
+    }
+
+    .hero-glow {
+      position: absolute;
+      top: -80px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 350px;
+      background: radial-gradient(circle, rgba(77, 141, 255, 0.15) 0%, rgba(139, 124, 255, 0.08) 40%, transparent 70%);
+      filter: blur(50px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.9rem;
+      background: rgba(77, 141, 255, 0.1);
+      border: 1px solid rgba(77, 141, 255, 0.3);
+      border-radius: 9999px;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #A8C7FA;
+      margin-bottom: 1.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hero-title {
+      font-size: clamp(2.25rem, 5vw, 3.75rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-title-gradient {
+      background: linear-gradient(135deg, #FFFFFF 20%, #A8C7FA 60%, #C3B5FD 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 720px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      margin-bottom: 3.5rem;
+    }
+
+    .hero-ctas .btn {
+      padding: 0.875rem 1.75rem;
+      font-size: 1rem;
+    }
+
+    /* ── Hero Preview Mockup ────────────────────────────────────────── */
+    .preview-wrapper {
+      max-width: 1040px;
+      margin: 0 auto;
+      border-radius: var(--radius-xl);
+      padding: 8px;
+      background: linear-gradient(180deg, rgba(77, 141, 255, 0.25), rgba(27, 35, 48, 0.4));
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(77, 141, 255, 0.1);
+      position: relative;
+      z-index: 1;
+    }
+
+    .preview-card {
+      background: var(--bg-card);
+      border-radius: calc(var(--radius-xl) - 4px);
+      border: 1px solid var(--border-color);
+      overflow: hidden;
+      text-align: left;
+    }
+
+    .preview-header {
+      background: #080B10;
+      padding: 0.875rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .preview-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .preview-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #FF5F56; }
+    .dot-yellow { background: #FFBD2E; }
+    .dot-green { background: #27C93F; }
+
+    .preview-title {
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      color: var(--text-dim);
+    }
+
+    .preview-body {
+      padding: 1.75rem;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+    }
+
+    .stat-widget {
+      background: #0B0E14;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #fff;
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-meta {
+      font-size: 0.8125rem;
+      color: var(--color-normal);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* ── Features Grid ──────────────────────────────────────────────── */
+    .section {
+      padding: 6rem 0;
+    }
+
+    .section-header {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 4rem;
+    }
+
+    .section-tag {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .section-subtitle {
+      font-size: 1.0625rem;
+      color: var(--text-muted);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.75rem;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-focus);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .feature-icon-box {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-md);
+      background: rgba(77, 141, 255, 0.12);
+      border: 1px solid rgba(77, 141, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+    }
+
+    .feature-card:nth-child(2) .feature-icon-box {
+      background: var(--ai-accent-bg);
+      border-color: rgba(139, 124, 255, 0.3);
+      color: var(--ai-accent);
+    }
+
+    .feature-card:nth-child(3) .feature-icon-box {
+      background: rgba(53, 208, 127, 0.12);
+      border-color: rgba(53, 208, 127, 0.3);
+      color: var(--color-normal);
+    }
+
+    .feature-card:nth-child(4) .feature-icon-box {
+      background: rgba(245, 185, 66, 0.12);
+      border-color: rgba(245, 185, 66, 0.3);
+      color: var(--color-warning);
+    }
+
+    .feature-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-desc {
+      color: var(--text-muted);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
+    /* ── How It Works ───────────────────────────────────────────────── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+      position: relative;
+    }
+
+    .step-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 2.25rem 2rem;
+      position: relative;
+    }
+
+    .step-number {
+      font-family: var(--font-mono);
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.06);
+      position: absolute;
+      top: 1.25rem;
+      right: 1.5rem;
+    }
+
+    .step-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: var(--radius-sm);
+      background: rgba(77, 141, 255, 0.15);
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    .step-title {
+      font-size: 1.1875rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .step-desc {
+      color: var(--text-muted);
+      font-size: 0.9375rem;
+    }
+
+    /* ── Providers Bar ──────────────────────────────────────────────── */
+    .providers-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.25rem;
+      margin-top: 2rem;
+    }
+
+    .provider-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 9999px;
+      padding: 0.6rem 1.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 600;
+      font-size: 0.9375rem;
+      color: var(--text-main);
+      transition: border-color 0.2s;
+    }
+
+    .provider-pill:hover {
+      border-color: var(--border-focus);
+    }
+
+    .provider-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-normal);
+    }
+
+    /* ── Security Card ──────────────────────────────────────────────── */
+    .security-banner {
+      background: linear-gradient(135deg, rgba(13, 17, 24, 0.95), rgba(27, 35, 48, 0.6));
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 3rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    .security-items {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .security-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.875rem;
+    }
+
+    .security-item-icon {
+      color: var(--color-normal);
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .security-item-title {
+      font-weight: 600;
+      color: #fff;
+      font-size: 0.9375rem;
+    }
+
+    .security-item-desc {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+
+    /* ── Call to Action Banner ──────────────────────────────────────── */
+    .cta-box {
+      background: linear-gradient(135deg, rgba(77, 141, 255, 0.12), rgba(139, 124, 255, 0.08));
+      border: 1px solid rgba(77, 141, 255, 0.3);
+      border-radius: var(--radius-xl);
+      padding: 4.5rem 2rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .cta-desc {
+      font-size: 1.125rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 2.5rem;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    .footer {
+      border-top: 1px solid var(--border-color);
+      padding: 3.5rem 0 2.5rem;
+      background: #06080C;
+    }
+
+    .footer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+
+    .footer-bottom {
+      border-top: 1px solid var(--border-color);
+      padding-top: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 0.875rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .steps-grid, .preview-body, .security-banner {
+        grid-template-columns: 1fr;
+      }
+      .nav-links {
+        display: none;
+      }
+    }
+  </style>
 </head>
 <body>
 
-  <!-- BANNER MODO DEMONSTRAÇÃO -->
-  <div id="demo-banner" class="demo-banner hidden">
-    <div class="demo-banner-content">
-      <i data-lucide="alert-triangle" class="icon-warning"></i>
-      <span><strong>TOKENPULSE DEMO MODE</strong> — Exibindo telemetria e dados simulados. Nenhuma API real conectada.</span>
-    </div>
-    <button id="btn-exit-demo" class="btn-demo-action">Sair do Demo</button>
-  </div>
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="container nav-container">
+      <a href="/" class="brand-logo">
+        <div class="brand-icon-box">
+          <i data-lucide="activity"></i>
+        </div>
+        <span class="brand-title">TOKENPULSE</span>
+      </a>
 
-  <div class="app-layout">
-    <!-- SIDEBAR -->
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-brand">
+      <ul class="nav-links">
+        <li><a href="#recursos" class="nav-link">Recursos</a></li>
+        <li><a href="#como-funciona" class="nav-link">Como Funciona</a></li>
+        <li><a href="#provedores" class="nav-link">Provedores</a></li>
+        <li><a href="#seguranca" class="nav-link">Segurança</a></li>
+      </ul>
+
+      <div class="nav-actions" id="nav-actions">
+        <!-- Alterado dinamicamente caso haja sessão ativa -->
+        <a href="/login.html" class="btn btn-ghost" id="btn-nav-login">Entrar</a>
+        <a href="/signup.html" class="btn btn-primary" id="btn-nav-signup">Criar Conta Grátis</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO SECTION -->
+  <section class="hero-section">
+    <div class="hero-glow"></div>
+    <div class="container hero-content">
+      <div class="hero-badge">
+        <i data-lucide="zap" style="width: 14px; height: 14px;"></i>
+        Observabilidade & Telemetria de IA
+      </div>
+      <h1 class="hero-title">
+        Observe seu consumo de IA em <span class="hero-title-gradient">tempo real</span>
+      </h1>
+      <p class="hero-subtitle">
+        Centralize gastos, monitore limites de tokens e projete faturas com precisão para OpenAI, Claude, Gemini e Groq. Diretamente no navegador — sem comandos de terminal e sem alterações no seu código.
+      </p>
+
+      <div class="hero-ctas">
+        <a href="/signup.html" class="btn btn-primary">
+          <i data-lucide="user-plus" style="width: 18px; height: 18px;"></i>
+          Começar Gratuitamente
+        </a>
+        <a href="/dashboard.html?demo=true" class="btn btn-secondary">
+          <i data-lucide="play-circle" style="width: 18px; height: 18px;"></i>
+          Ver Demonstração ao Vivo
+        </a>
+      </div>
+
+      <!-- VISUAL DASHBOARD PREVIEW -->
+      <div class="preview-wrapper">
+        <div class="preview-card">
+          <div class="preview-header">
+            <div class="preview-dots">
+              <span class="preview-dot dot-red"></span>
+              <span class="preview-dot dot-yellow"></span>
+              <span class="preview-dot dot-green"></span>
+            </div>
+            <span class="preview-title">app.tokenpulse.com/dashboard</span>
+            <div style="font-size: 0.75rem; color: var(--color-normal); display: flex; align-items: center; gap: 4px;">
+              <i data-lucide="radio" style="width: 12px; height: 12px;"></i> LIVE SSE STREAM
+            </div>
+          </div>
+          <div class="preview-body">
+            <div class="stat-widget">
+              <div class="stat-label">
+                <i data-lucide="calendar" style="width: 14px; height: 14px;"></i> Consumo Hoje
+              </div>
+              <div class="stat-value">6.840 req</div>
+              <div class="stat-meta">
+                <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i> 68.4% da cota diária
+              </div>
+            </div>
+
+            <div class="stat-widget">
+              <div class="stat-label">
+                <i data-lucide="gauge" style="width: 14px; height: 14px;"></i> Burn Rate & ETA
+              </div>
+              <div class="stat-value">380 req/h</div>
+              <div class="stat-meta" style="color: var(--color-warning);">
+                <i data-lucide="clock" style="width: 14px; height: 14px;"></i> Limite em ~6h 45m
+              </div>
+            </div>
+
+            <div class="stat-widget">
+              <div class="stat-label">
+                <i data-lucide="dollar-sign" style="width: 14px; height: 14px;"></i> Custo Estimado (Mês)
+              </div>
+              <div class="stat-value">$39.27</div>
+              <div class="stat-meta">
+                <i data-lucide="check-circle-2" style="width: 14px; height: 14px;"></i> 3 provedores sincronizados
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section" id="recursos">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Recursos</div>
+        <h2 class="section-title">Controle total sobre o seu faturamento de IA</h2>
+        <p class="section-subtitle">Tudo o que engenheiros e equipes de produto precisam para acompanhar custos sem fricção técnica.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <i data-lucide="cloud-sync" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="feature-title">Sincronização Direta</h3>
+          <p class="feature-desc">Conecte sua chave de faturamento ou admin pelo navegador. O TokenPulse sincroniza o histórico oficial de tokens e custos automaticamente com um clique.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <i data-lucide="trending-up" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="feature-title">Burn Rate & Previsões</h3>
+          <p class="feature-desc">Algoritmos preditivos estimam sua fatura de final de mês e o tempo exato (ETA) até atingir o teto de cota da sua conta.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <i data-lucide="bell" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="feature-title">Alertas e Detecção de Anomalias</h3>
+          <p class="feature-desc">Receba notificações preventivas e webhooks quando o tráfego ou os custos de um modelo ultrapassarem os limiares definidos por você.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <i data-lucide="shield-check" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h3 class="feature-title">Isolamento Multi-Tenant</h3>
+          <p class="feature-desc">Seus dados e chaves permanecem estritamente isolados em sua conta pessoal, protegidos por criptografia simétrica com salt dedicado.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section" id="como-funciona" style="background: rgba(13, 17, 24, 0.4); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Como Funciona</div>
+        <h2 class="section-title">Pronto para usar em menos de 2 minutos</h2>
+        <p class="section-subtitle">Sem instalar Docker, sem configurar proxies no terminal e sem instalar extensões de IDE.</p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <span class="step-number">01</span>
+          <span class="step-badge">PASSO 1</span>
+          <h3 class="step-title">Crie sua Conta Web</h3>
+          <p class="step-desc">Faça seu cadastro gratuito em segundos. Nenhum cartão de crédito ou instalação local é necessária.</p>
+        </div>
+
+        <div class="step-card">
+          <span class="step-number">02</span>
+          <span class="step-badge">PASSO 2</span>
+          <h3 class="step-title">Conecte suas Chaves</h3>
+          <p class="step-desc">Insira a chave dos provedores que utiliza (OpenAI, Anthropic, Gemini, Groq). O sistema valida a conexão instantaneamente.</p>
+        </div>
+
+        <div class="step-card">
+          <span class="step-number">03</span>
+          <span class="step-badge">PASSO 3</span>
+          <h3 class="step-title">Acompanhe seus Custos</h3>
+          <p class="step-desc">Seu dashboard se ilumina com gráficos em tempo real, quebra por modelo, velocidade de gastos e projeções mensais.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROVIDERS -->
+  <section class="section" id="provedores">
+    <div class="container" style="text-align: center;">
+      <div class="section-header">
+        <div class="section-tag">Compatibilidade</div>
+        <h2 class="section-title">Suporte aos principais modelos e provedores</h2>
+        <p class="section-subtitle">Monitore todos os seus provedores de IA em uma única tela.</p>
+      </div>
+
+      <div class="providers-wrap">
+        <div class="provider-pill"><span class="provider-dot"></span> OpenAI (GPT-4o, o3-mini)</div>
+        <div class="provider-pill"><span class="provider-dot"></span> Anthropic (Claude 3.5 Sonnet)</div>
+        <div class="provider-pill"><span class="provider-dot"></span> Google Gemini (Gemini 2.0 Flash)</div>
+        <div class="provider-pill"><span class="provider-dot"></span> Groq (Llama 3.3 70B)</div>
+        <div class="provider-pill"><span class="provider-dot"></span> OpenRouter</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY -->
+  <section class="section" id="seguranca" style="border-top: 1px solid var(--border-color);">
+    <div class="container">
+      <div class="security-banner">
+        <div>
+          <div class="section-tag">Segurança & Privacidade</div>
+          <h2 class="section-title" style="margin-bottom: 1rem;">Proteção de dados em primeiro lugar</h2>
+          <p class="section-subtitle" style="margin-bottom: 2rem;">
+            O TokenPulse foi projetado desde a primeira linha de código com rigorosas práticas de segurança defensiva.
+          </p>
+          <a href="/signup.html" class="btn btn-primary">
+            Criar Minha Conta Segura
+          </a>
+        </div>
+
+        <ul class="security-items">
+          <li class="security-item">
+            <i data-lucide="lock" class="security-item-icon"></i>
+            <div>
+              <div class="security-item-title">Criptografia Simétrica Fernet + HKDF</div>
+              <div class="security-item-desc">Chaves de API nunca são salvas em texto puro. Cada chave é criptografada em repouso com derivação de salt por usuário.</div>
+            </div>
+          </li>
+          <li class="security-item">
+            <i data-lucide="shield" class="security-item-icon"></i>
+            <div>
+              <div class="security-item-title">Guarda Rigorosa Anti-SSRF</div>
+              <div class="security-item-desc">Bloqueio ativo contra faixas de rede privada (RFC 1918) e endereços de loopback locais.</div>
+            </div>
+          </li>
+          <li class="security-item">
+            <i data-lucide="key" class="security-item-icon"></i>
+            <div>
+              <div class="security-item-title">Mascaração de Segredos</div>
+              <div class="security-item-desc">Segredos e chaves nunca são refletidos na interface web após configurados.</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA BANNER -->
+  <section class="section">
+    <div class="container">
+      <div class="cta-box">
+        <h2 class="cta-title">Pronto para assumir o controle do seu consumo de IA?</h2>
+        <p class="cta-desc">Junte-se a desenvolvedores e equipes que monitoram seus modelos com precisão em uma plataforma rápida e segura.</p>
+        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+          <a href="/signup.html" class="btn btn-primary" style="padding: 0.875rem 2rem; font-size: 1.0625rem;">
+            Criar Conta Grátis
+          </a>
+          <a href="/dashboard.html?demo=true" class="btn btn-secondary" style="padding: 0.875rem 2rem; font-size: 1.0625rem;">
+            Experimentar Demonstração
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
         <div class="brand-logo">
-          <i data-lucide="activity" class="brand-icon"></i>
-        </div>
-        <div class="brand-info">
-          <span class="brand-title">TOKENPULSE</span>
-          <span class="brand-subtitle">OBSERVE YOUR AI</span>
-        </div>
-      </div>
-
-      <!-- Provider Filter in Sidebar -->
-      <div class="sidebar-provider-filter">
-        <label for="select-global-provider">PROVEDOR ATIVO</label>
-        <div class="custom-select-wrapper">
-          <select id="select-global-provider" class="select-provider">
-            <option value="">Todos os Provedores</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="groq">Groq</option>
-            <option value="mistral">Mistral AI</option>
-            <option value="ollama">Ollama (Local)</option>
-          </select>
-          <i data-lucide="chevron-down" class="select-chevron"></i>
-        </div>
-      </div>
-
-      <!-- Navigation -->
-      <nav class="sidebar-nav">
-        <button class="nav-item active" data-page="dashboard">
-          <i data-lucide="layout-dashboard"></i>
-          <span>Dashboard</span>
-        </button>
-        <button class="nav-item" data-page="models">
-          <i data-lucide="cpu"></i>
-          <span>Modelos</span>
-        </button>
-        <button class="nav-item" data-page="logs">
-          <i data-lucide="scroll-text"></i>
-          <span>Request Log</span>
-        </button>
-        <button class="nav-item" data-page="health">
-          <i data-lucide="heart-pulse"></i>
-          <span>System Health</span>
-          <span id="health-badge" class="badge-status-dot online"></span>
-        </button>
-        <button class="nav-item" data-page="settings">
-          <i data-lucide="sliders"></i>
-          <span>Configurações</span>
-        </button>
-      </nav>
-
-      <!-- Sidebar Footer -->
-      <div class="sidebar-footer">
-        <div class="connection-status-pill">
-          <span id="backend-status-dot" class="status-indicator-dot online"></span>
-          <span id="backend-status-text">Backend Conectado</span>
-        </div>
-      </div>
-    </aside>
-
-    <!-- MAIN CONTENT -->
-    <main class="main-container">
-      <!-- TOPBAR -->
-      <header class="topbar">
-        <div class="topbar-left">
-          <!-- Hamburger: visible on mobile only -->
-          <button id="btn-hamburger" class="btn-hamburger" aria-label="Abrir menu" title="Menu">
-            <i data-lucide="menu"></i>
-          </button>
-          <h1 id="page-title" class="page-heading">Dashboard de Uso</h1>
-          <span id="live-indicator" class="badge-live"><span class="pulse-dot"></span> AO VIVO</span>
-        </div>
-
-        <div class="topbar-right">
-          <!-- SSE Connection Indicator -->
-          <div id="sse-indicator" class="sse-indicator" title="Status da conexão em tempo real">
-            <span class="sse-dot"></span>
-            <span id="sse-status-text">CONECTANDO</span>
-          </div>
-
-          <!-- Last update timestamp -->
-          <div class="time-meta">
-            <span class="meta-label">Última atualização:</span>
-            <span id="last-update-time" class="meta-value font-mono">--:--:--</span>
-          </div>
-
-          <!-- Refresh Button -->
-          <button id="btn-refresh" class="btn btn-secondary btn-icon" title="Atualizar dados locais">
-            <i data-lucide="refresh-cw" id="icon-refresh"></i>
-            <span>Atualizar</span>
-          </button>
-
-          <!-- Direct Provider Usage Sync Button -->
-          <button id="btn-sync-now" class="btn btn-primary" title="Sincronizar faturamento e consumo dos provedores agora">
-            <i data-lucide="cloud-download" id="icon-sync-now"></i>
-            <span>Sincronizar Agora</span>
-          </button>
-
-          <!-- Export Dropdown -->
-          <div class="dropdown">
-            <button id="btn-export" class="btn btn-secondary">
-              <i data-lucide="download"></i>
-              <span>Exportar</span>
-              <i data-lucide="chevron-down" class="icon-sm"></i>
-            </button>
-            <div id="export-menu" class="dropdown-menu hidden">
-              <button class="dropdown-item" id="export-csv"><i data-lucide="file-spreadsheet"></i> Exportar CSV</button>
-              <button class="dropdown-item" id="export-json"><i data-lucide="file-code"></i> Exportar JSON</button>
-              <button class="dropdown-item" id="export-report"><i data-lucide="file-text"></i> Baixar Relatório</button>
-            </div>
-          </div>
-
-          <!-- Demo toggle button -->
-          <button id="btn-toggle-demo" class="btn btn-demo-toggle">
-            <i data-lucide="sparkles"></i>
-            <span id="txt-demo-toggle">Demo Mode</span>
-          </button>
-
-          <!-- User Profile & Logout -->
-          <div class="user-profile-menu" style="display: flex; align-items: center; gap: 8px; margin-left: 6px;">
-            <span id="user-display-name" class="font-mono" style="font-size: 0.8rem; color: var(--text-muted); background: var(--bg-badge); padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">admin</span>
-            <button id="btn-logout" class="btn btn-secondary btn-icon" title="Sair da sessão">
-              <i data-lucide="log-out"></i>
-              <span>Sair</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <!-- CONTENT PAGES -->
-
-      <!-- ============================================================= -->
-      <!-- PAGE: DASHBOARD -->
-      <!-- ============================================================= -->
-      <section id="page-dashboard" class="page-content active">
-        
-        <!-- ACTIVE ANOMALIES & ALERTS BANNER -->
-        <div id="anomalies-container" class="alerts-stream hidden"></div>
-
-        <!-- DASHBOARD ERROR STATE BANNER -->
-        <div id="dashboard-error-banner" class="card-error-state hidden" style="margin-bottom: 20px; border: 1px solid var(--color-critical); background: var(--color-critical-bg); padding: 16px 20px; border-radius: var(--radius-md); display: flex; align-items: center; gap: 14px;">
-          <i data-lucide="alert-octagon" style="color: var(--color-critical); width: 22px; height: 22px; flex-shrink: 0;"></i>
-          <div style="flex: 1;">
-            <strong style="color: var(--color-critical); font-size: 13px; display: block;">Falha na Conexão de Telemetria</strong>
-            <p id="dashboard-error-msg" style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">Não foi possível sincronizar as métricas com o servidor.</p>
-          </div>
-          <button id="btn-retry-dashboard" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Tentar Novamente</button>
-        </div>
-
-        <!-- 1. USAGE CARDS (HOJE, SEMANA, MÊS) -->
-        <div class="section-title-row">
-          <h2 class="section-title">Consumo de Limites</h2>
-          <span class="section-subtitle">Acompanhamento de cotas e risco de estouro</span>
-        </div>
-
-        <div class="cards-grid-3">
-          <!-- Card Hoje -->
-          <div class="card usage-card" id="card-usage-today">
-            <div class="card-header">
-              <div class="card-tag">HOJE</div>
-              <span class="card-risk-badge badge-normal" id="badge-risk-today">Normal</span>
-            </div>
-            <div class="usage-percentage-row">
-              <span class="usage-pct font-mono" id="val-pct-today">0.0%</span>
-            </div>
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill fill-normal" id="bar-today" style="width: 0%;"></div>
-            </div>
-            <div class="usage-stats-footer">
-              <div>
-                <span class="stat-label">Utilizado</span>
-                <span class="stat-val font-mono" id="val-used-today">0 req</span>
-              </div>
-              <div class="text-right">
-                <span class="stat-label">Restante</span>
-                <span class="stat-val font-mono" id="val-left-today">0 req</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Card Esta Semana -->
-          <div class="card usage-card" id="card-usage-week">
-            <div class="card-header">
-              <div class="card-tag">ESTA SEMANA</div>
-              <span class="card-risk-badge badge-normal" id="badge-risk-week">Normal</span>
-            </div>
-            <div class="usage-percentage-row">
-              <span class="usage-pct font-mono" id="val-pct-week">0.0%</span>
-            </div>
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill fill-normal" id="bar-week" style="width: 0%;"></div>
-            </div>
-            <div class="usage-stats-footer">
-              <div>
-                <span class="stat-label">Utilizado</span>
-                <span class="stat-val font-mono" id="val-used-week">0 req</span>
-              </div>
-              <div class="text-right">
-                <span class="stat-label">Restante</span>
-                <span class="stat-val font-mono" id="val-left-week">0 req</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Card Este Mês -->
-          <div class="card usage-card" id="card-usage-month">
-            <div class="card-header">
-              <div class="card-tag">ESTE MÊS</div>
-              <span class="card-risk-badge badge-normal" id="badge-risk-month">Normal</span>
-            </div>
-            <div class="usage-percentage-row">
-              <span class="usage-pct font-mono" id="val-pct-month">0.0%</span>
-            </div>
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill fill-normal" id="bar-month" style="width: 0%;"></div>
-            </div>
-            <div class="usage-stats-footer">
-              <div>
-                <span class="stat-label">Utilizado</span>
-                <span class="stat-val font-mono" id="val-used-month">0 req</span>
-              </div>
-              <div class="text-right">
-                <span class="stat-label">Restante</span>
-                <span class="stat-val font-mono" id="val-left-month">0 req</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. MINI METRIC CARDS -->
-        <div class="mini-cards-grid">
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="layers"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Total de Tokens Hoje</span>
-              <span class="mini-card-val font-mono" id="mini-tokens-today">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="log-in"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Input Tokens</span>
-              <span class="mini-card-val font-mono" id="mini-input-tokens">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="log-out"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Output Tokens</span>
-              <span class="mini-card-val font-mono" id="mini-output-tokens">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="dollar-sign"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Custo Estimado Hoje</span>
-              <span class="mini-card-val font-mono text-accent" id="mini-cost-today">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="gauge"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Latência Média</span>
-              <span class="mini-card-val font-mono" id="mini-latency-today">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon"><i data-lucide="alert-circle"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Taxa de Erro</span>
-              <span class="mini-card-val font-mono" id="mini-error-rate">N/D</span>
-            </div>
-          </div>
-
-          <div class="card mini-card">
-            <div class="mini-card-icon text-success"><i data-lucide="zap"></i></div>
-            <div class="mini-card-body">
-              <span class="mini-card-label">Economia com Cache</span>
-              <span class="mini-card-val font-mono text-success" id="mini-cache-savings">$0.00</span>
-              <span id="mini-cache-hit-rate" style="font-size: 11px; color: var(--text-dim); display: block;">0.0% hit rate</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. BURN RATE & PROJEÇÃO -->
-        <div class="card projection-card">
-          <div class="card-header">
-            <div class="flex-row gap-2">
-              <i data-lucide="trending-up" class="text-accent"></i>
-              <h3 class="card-title">Análise de Burn Rate e Projeção de Consumo</h3>
-            </div>
-            <span class="meta-label">Cálculo preditivo</span>
-          </div>
-          <div class="projection-grid" id="projection-content">
-            <div class="projection-metric">
-              <span class="proj-label">Velocidade Atual</span>
-              <span class="proj-value font-mono" id="proj-burn-rate">-- req/h</span>
-              <span class="proj-sub" id="proj-tokens-rate">-- tok/h</span>
-            </div>
-            <div class="projection-metric">
-              <span class="proj-label">Estimativa para Esgotar Cota (ETA)</span>
-              <span class="proj-value font-mono text-warning" id="proj-eta">--</span>
-              <span class="proj-sub">baseado no ritmo das últimas horas</span>
-            </div>
-            <div class="projection-metric">
-              <span class="proj-label">Projeção até Fim do Dia</span>
-              <span class="proj-value font-mono" id="proj-daily-est">-- req</span>
-              <span class="proj-sub" id="proj-daily-pct">-- % da cota diária</span>
-            </div>
-            <div class="projection-metric">
-              <span class="proj-label">Custo Diário Projetado</span>
-              <span class="proj-value font-mono text-accent" id="proj-daily-cost">N/D</span>
-              <span class="proj-sub">extrapolação 24h</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 4. GRÁFICOS LINHA 1 (Linha Temporal + Provedor) -->
-        <div class="charts-grid-2">
-          <div class="card chart-card">
-            <div class="chart-header">
-              <h3 class="card-title">Uso ao Longo do Tempo (Últimas 24h)</h3>
-              <div class="chart-legend-controls">
-                <span class="pill pill-active" data-metric="requests">Requests</span>
-                <span class="pill" data-metric="tokens">Tokens</span>
-                <span class="pill" data-metric="cost">Custos</span>
-              </div>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-timeline"></canvas>
-            </div>
-          </div>
-
-          <div class="card chart-card">
-            <div class="chart-header">
-              <h3 class="card-title">Distribuição por Provedor</h3>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-providers"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- 5. GRÁFICOS LINHA 2 (Input vs Output + Distribuição Horária) -->
-        <div class="charts-grid-2">
-          <div class="card chart-card">
-            <div class="chart-header">
-              <h3 class="card-title">Input vs Output Tokens</h3>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-input-output"></canvas>
-            </div>
-          </div>
-
-          <div class="card chart-card">
-            <div class="chart-header">
-              <h3 class="card-title">Distribuição de Requests por Hora</h3>
-            </div>
-            <div class="chart-container">
-              <canvas id="chart-hourly"></canvas>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================= -->
-      <!-- PAGE: MODELOS -->
-      <!-- ============================================================= -->
-      <section id="page-models" class="page-content">
-        <div class="section-title-row">
-          <div>
-            <h2 class="section-title">Modelos Conectados</h2>
-            <span class="section-subtitle">Detecção automática de modelos e telemetria detalhada</span>
-          </div>
-          <div class="table-search-box">
-            <i data-lucide="search"></i>
-            <input type="text" id="filter-models-input" placeholder="Buscar por modelo ou provedor..." />
-          </div>
-        </div>
-
-        <div class="card table-card">
-          <div class="table-responsive">
-            <table class="data-table" id="table-models">
-              <thead>
-                <tr>
-                  <th data-sort="name">Modelo <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="provider">Provedor <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="requests" class="text-right">Requests <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="inputTokens" class="text-right">Input <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="outputTokens" class="text-right">Output <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="totalTokens" class="text-right">Total Tokens <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="latency" class="text-right">Latência <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="errorRate" class="text-right">Erros <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th data-sort="cost" class="text-right">Custo Estimado <i data-lucide="arrow-up-down" class="icon-sort"></i></th>
-                  <th class="text-center">Ações</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-models">
-                <!-- Linhas inseridas via JS -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================= -->
-      <!-- PAGE: REQUEST LOG -->
-      <!-- ============================================================= -->
-      <section id="page-logs" class="page-content">
-        <div class="section-title-row">
-          <div>
-            <h2 class="section-title">Histórico de Requests</h2>
-            <span class="section-subtitle">Log de transações interceptadas</span>
-          </div>
-          <div class="log-filters">
-            <select id="filter-log-provider" class="select-filter">
-              <option value="">Todos os Provedores</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="gemini">Google Gemini</option>
-            </select>
-            <select id="filter-log-status" class="select-filter">
-              <option value="">Todos os Status</option>
-              <option value="success">Sucesso (200)</option>
-              <option value="error">Erros (4xx, 5xx)</option>
-            </select>
-            <button id="btn-clear-logs" class="btn btn-danger btn-sm" title="Limpar histórico">
-              <i data-lucide="trash-2"></i>
-              <span>Limpar</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="card table-card">
-          <div class="table-responsive">
-            <table class="data-table" id="table-logs">
-              <thead>
-                <tr>
-                  <th>Hora (Local)</th>
-                  <th>Provedor</th>
-                  <th>Modelo</th>
-                  <th class="text-right">Tokens</th>
-                  <th class="text-right">Latência</th>
-                  <th class="text-center">Status</th>
-                  <th class="text-right">Custo</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-logs">
-                <!-- Logs via JS -->
-              </tbody>
-            </table>
-          </div>
-          <div class="pagination-footer" id="logs-pagination">
-            <span id="logs-pagination-info" class="pagination-info">Mostrando 0 de 0</span>
-            <div class="pagination-controls">
-              <button id="btn-prev-page" class="btn btn-secondary btn-sm" disabled><i data-lucide="chevron-left"></i> Anterior</button>
-              <button id="btn-next-page" class="btn btn-secondary btn-sm" disabled>Próxima <i data-lucide="chevron-right"></i></button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================================================= -->
-      <!-- PAGE: SYSTEM HEALTH -->
-      <!-- ============================================================= -->
-      <section id="page-health" class="page-content">
-        <div class="section-title-row">
-          <div>
-            <h2 class="section-title">Status dos Provedores</h2>
-            <span class="section-subtitle">Disponibilidade e conectividade em tempo real</span>
-          </div>
-          <button id="btn-health-check-now" class="btn btn-secondary btn-sm">
+          <div class="brand-icon-box">
             <i data-lucide="activity"></i>
-            <span>Testar Conexões</span>
-          </button>
+          </div>
+          <span class="brand-title">TOKENPULSE</span>
         </div>
-
-        <div class="health-cards-grid" id="health-grid">
-          <!-- Cards de Health por provedor gerados via JS -->
+        <div style="display: flex; gap: 1.5rem; font-size: 0.9375rem; color: var(--text-muted);">
+          <a href="/dashboard.html?demo=true" style="color: var(--accent);">Demonstração</a>
+          <a href="/login.html">Login</a>
+          <a href="/signup.html">Cadastro</a>
         </div>
-      </section>
-
-      <!-- ============================================================= -->
-      <!-- PAGE: CONFIGURAÇÕES -->
-      <!-- ============================================================= -->
-      <section id="page-settings" class="page-content">
-        <div class="section-title-row">
-          <div>
-            <h2 class="section-title">Configurações do Sistema</h2>
-            <span class="section-subtitle">Gerenciamento seguro de provedores, alertas e preferências</span>
-          </div>
-        </div>
-
-        <div class="settings-grid">
-          <!-- 1. GERENCIADOR DE PROVEDORES -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="key" class="text-accent"></i>
-                <h3 class="card-title">Provedores de IA e Credenciais</h3>
-              </div>
-            </div>
-            
-            <div class="security-notice">
-              <i data-lucide="shield-check" class="icon-security"></i>
-              <div>
-                <strong>Segurança Garantida:</strong>
-                As API keys são criptografadas (Fernet) e armazenadas exclusivamente no backend. Elas nunca são enviadas ao navegador.
-              </div>
-            </div>
-
-            <!-- Form de Adicionar/Editar Provedor -->
-            <form id="form-provider" class="form-grid">
-              <div class="form-group">
-                <label for="input-provider-type">Provedor</label>
-                <select id="input-provider-type" class="form-control" required>
-                  <option value="openai">OpenAI</option>
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="groq">Groq</option>
-                  <option value="mistral">Mistral AI</option>
-                  <option value="ollama">Ollama (Local)</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="input-provider-name">Nome de Exibição</label>
-                <input type="text" id="input-provider-name" class="form-control" placeholder="ex: OpenAI Produção" required />
-              </div>
-
-              <div class="form-group">
-                <label for="input-provider-key">API Key</label>
-                <div class="password-input-wrapper">
-                  <input type="password" id="input-provider-key" class="form-control" placeholder="sk-..." autocomplete="off" />
-                  <button type="button" class="btn-toggle-pwd" id="btn-toggle-key"><i data-lucide="eye"></i></button>
-                </div>
-                <small class="form-hint">Deixe em branco para manter a chave atual.</small>
-              </div>
-
-              <div class="form-group">
-                <label for="input-provider-url">Base URL (Opcional)</label>
-                <input type="url" id="input-provider-url" class="form-control" placeholder="https://api.openai.com/v1" />
-              </div>
-
-              <div class="form-actions flex-row gap-2">
-                <button type="button" class="btn btn-secondary" id="btn-test-provider">
-                  <i data-lucide="shield-check"></i>
-                  <span>Testar Conexão</span>
-                </button>
-                <button type="submit" class="btn btn-primary" id="btn-save-provider">
-                  <i data-lucide="plus"></i>
-                  <span>Salvar Provedor</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <!-- Lista de Provedores Configurados -->
-            <h4 class="subsection-title">Provedores Cadastrados</h4>
-            <div id="settings-providers-list" class="configured-providers-list">
-              <!-- Lista populada via JS -->
-            </div>
-          </div>
-
-          <!-- 2. REGRAS DE ALERTA -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="bell" class="text-accent"></i>
-                <h3 class="card-title">Regras de Notificação e Alertas</h3>
-              </div>
-            </div>
-            
-            <form id="form-alert" class="form-grid">
-              <div class="form-group">
-                <label for="input-alert-metric">Métrica Monitorada</label>
-                <select id="input-alert-metric" class="form-control">
-                  <option value="daily_usage_pct">Uso Diário (% da Cota)</option>
-                  <option value="error_rate">Taxa de Erro (%)</option>
-                  <option value="latency_ms">Latência Média (ms)</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="input-alert-threshold">Limite de Disparo</label>
-                <input type="number" step="0.1" id="input-alert-threshold" class="form-control" placeholder="ex: 80" required />
-              </div>
-
-              <div class="form-group">
-                <label for="input-alert-webhook">Webhook URL (Discord / Slack - Opcional)</label>
-                <input type="url" id="input-alert-webhook" class="form-control" placeholder="https://discord.com/api/webhooks/..." />
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-secondary">
-                  <i data-lucide="bell-plus"></i>
-                  <span>Adicionar Regra</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <h4 class="subsection-title">Regras Ativas</h4>
-            <div id="settings-alerts-list" class="alerts-config-list">
-              <!-- Lista de regras populada via JS -->
-            </div>
-          </div>
-
-          <!-- 3. CHAVES VIRTUAIS DO GATEWAY (CLIENT API KEYS) -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="key" class="text-accent"></i>
-                <h3 class="card-title">Chaves Virtuais do Gateway (Client API Keys)</h3>
-              </div>
-            </div>
-            <p class="form-hint" style="margin-bottom: 16px;">
-              Gere chaves <code>tp_live_...</code> para que suas aplicações acessem o Gateway sem expor as chaves reais dos provedores.
-            </p>
-
-            <form id="form-create-client-key" class="form-grid">
-              <div class="form-group">
-                <label for="input-client-key-name">Nome da Aplicação / Cliente</label>
-                <input type="text" id="input-client-key-name" class="form-control" placeholder="ex: App Mobile Produção" required />
-              </div>
-
-              <div class="form-group">
-                <label for="input-client-key-rpm">Limite de Taxa (RPM)</label>
-                <input type="number" id="input-client-key-rpm" class="form-control" value="60" min="1" max="10000" />
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-secondary">
-                  <i data-lucide="plus-circle"></i>
-                  <span>Emitir Nova Chave</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <h4 class="subsection-title">Chaves Ativas</h4>
-            <div id="client-keys-list" class="configured-providers-list">
-              <!-- Populado via JS -->
-            </div>
-          </div>
-
-          <!-- 4. REGRAS DE FALLBACK & ALTA DISPONIBILIDADE -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="shuffle" class="text-accent"></i>
-                <h3 class="card-title">Regras de Fallback & Alta Disponibilidade</h3>
-              </div>
-            </div>
-            <p class="form-hint" style="margin-bottom: 16px;">
-              Redirecione requisições automaticamente quando o provedor primário sofrer erros 429, 5xx, timeouts ou atingir o orçamento mensal.
-            </p>
-
-            <form id="form-create-fallback-rule" class="form-grid">
-              <div class="form-group">
-                <label for="input-fb-source-provider">Provedor de Origem</label>
-                <select id="input-fb-source-provider" class="form-control" required>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="groq">Groq</option>
-                  <option value="mistral">Mistral AI</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="input-fb-source-model">Modelo de Origem</label>
-                <input type="text" id="input-fb-source-model" class="form-control" placeholder="ex: gpt-4o ou *" required />
-              </div>
-
-              <div class="form-group">
-                <label for="input-fb-target-provider">Provedor de Destino (Fallback)</label>
-                <select id="input-fb-target-provider" class="form-control" required>
-                  <option value="groq">Groq</option>
-                  <option value="mistral">Mistral AI</option>
-                  <option value="ollama">Ollama</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Google Gemini</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="input-fb-target-model">Modelo de Destino</label>
-                <input type="text" id="input-fb-target-model" class="form-control" placeholder="ex: llama-3.3-70b-versatile" required />
-              </div>
-
-              <div class="form-group">
-                <label for="input-fb-priority">Prioridade (Menor = Primeiro)</label>
-                <input type="number" id="input-fb-priority" class="form-control" value="1" min="1" max="100" />
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-secondary">
-                  <i data-lucide="plus-circle"></i>
-                  <span>Adicionar Regra</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <h4 class="subsection-title">Regras de Fallback Ativas</h4>
-            <div id="fallback-rules-list" class="configured-providers-list">
-              <!-- Populado via JS -->
-            </div>
-          </div>
-
-          <!-- 5. CACHE DE RESPOSTAS DO GATEWAY -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="zap" class="text-success"></i>
-                <h3 class="card-title">Cache de Respostas do Gateway</h3>
-              </div>
-            </div>
-            <p class="form-hint" style="margin-bottom: 16px;">
-              Armazena respostas idênticas em banco local. Chamadas repetidas respondem em &lt;5ms com custo $0.00 e sem consumir quotas de TPM/RPM.
-            </p>
-
-            <form id="form-cache-config" class="form-grid">
-              <div class="form-group">
-                <label for="input-cache-enabled">Status do Cache Global</label>
-                <select id="input-cache-enabled" class="form-control">
-                  <option value="true">Ativado (Recomendado)</option>
-                  <option value="false">Desativado</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="input-cache-ttl">TTL Padrão (Segundos)</label>
-                <input type="number" id="input-cache-ttl" class="form-control" value="3600" min="10" max="2592000" />
-                <small class="form-hint">3600 = 1 hora | 86400 = 24 horas</small>
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-secondary">
-                  <i data-lucide="save"></i>
-                  <span>Salvar Configuração</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <h4 class="subsection-title">Estatísticas do Cache</h4>
-            <div id="cache-stats-summary" style="margin-bottom: 16px;">
-              <span id="cache-stats-text" class="font-mono text-sm text-muted">Carregando estatísticas...</span>
-            </div>
-
-            <button type="button" class="btn btn-danger btn-sm" id="btn-flush-cache">
-              <i data-lucide="trash-2"></i>
-              <span>Limpar Todo o Cache</span>
-            </button>
-          </div>
-
-          <!-- 4. PREFERÊNCIAS GERAIS -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="settings" class="text-accent"></i>
-                <h3 class="card-title">Preferências da Dashboard</h3>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="select-refresh-interval">Intervalo de Atualização Automática (Polling Fallback)</label>
-              <select id="select-refresh-interval" class="form-control">
-                <option value="5000">A cada 5 segundos</option>
-                <option value="10000">A cada 10 segundos</option>
-                <option value="30000" selected>A cada 30 segundos (Padrão)</option>
-                <option value="60000">A cada 1 minuto</option>
-                <option value="300000">A cada 5 minutos</option>
-                <option value="0">Manual (Sem polling automático)</option>
-              </select>
-            </div>
-
-            <div class="form-group" style="margin-top: 16px;">
-              <label for="input-admin-key">Chave de Administração (X-Admin-Key)</label>
-              <input type="password" id="input-admin-key" class="form-control" placeholder="Opcional: chave configurada no .env" autocomplete="off" />
-              <small class="form-hint">Necessária apenas se o backend foi iniciado com <code>ADMIN_API_KEY</code>.</small>
-            </div>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-save-admin-key" style="margin-top: 8px;">
-              Salvar Chave Admin
-            </button>
-          </div>
-
-          <!-- 4. SEGURANÇA DA CONTA & RETENÇÃO -->
-          <div class="card settings-card">
-            <div class="card-header">
-              <div class="flex-row gap-2">
-                <i data-lucide="lock" class="text-accent"></i>
-                <h3 class="card-title">Segurança da Conta & Manutenção</h3>
-              </div>
-            </div>
-
-            <!-- Alterar Senha -->
-            <form id="form-change-password" class="form-grid">
-              <div class="form-group">
-                <label for="input-current-password">Senha Atual</label>
-                <input type="password" id="input-current-password" class="form-control" required autocomplete="current-password" />
-              </div>
-              <div class="form-group">
-                <label for="input-new-password">Nova Senha</label>
-                <input type="password" id="input-new-password" class="form-control" minlength="8" required autocomplete="new-password" />
-                <small class="form-hint">Mínimo 8 caracteres.</small>
-              </div>
-              <div class="form-actions">
-                <button type="submit" class="btn btn-secondary" id="btn-change-password">
-                  <i data-lucide="key-round"></i>
-                  <span>Alterar Senha</span>
-                </button>
-              </div>
-            </form>
-
-            <div class="divider"></div>
-
-            <!-- Manutenção de Logs -->
-            <h4 class="subsection-title">Limpeza de Histórico de Logs</h4>
-            <p class="form-hint" style="margin-bottom: 12px;">Remova requisições antigas para liberar espaço no banco SQLite.</p>
-            <div class="flex-row gap-3">
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-prune-logs">
-                <i data-lucide="archive"></i>
-                <span>Expurgar > 90 dias</span>
-              </button>
-              <button type="button" class="btn btn-danger btn-sm" id="btn-clear-all-logs">
-                <i data-lucide="trash-2"></i>
-                <span>Limpar Todos os Logs</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-    </main>
-  </div>
-
-  <!-- ============================================================= -->
-  <!-- MODAL: DETALHES DO MODELO -->
-  <!-- ============================================================= -->
-  <div id="modal-model-detail" class="modal-overlay hidden">
-    <div class="modal-container">
-      <div class="modal-header">
-        <div class="flex-row gap-3">
-          <div class="modal-badge-icon"><i data-lucide="cpu"></i></div>
-          <div>
-            <h3 id="modal-model-title" class="modal-title">gpt-4o</h3>
-            <span id="modal-model-provider" class="modal-subtitle">OpenAI</span>
-          </div>
-        </div>
-        <button id="modal-close" class="modal-btn-close"><i data-lucide="x"></i></button>
       </div>
-
-      <div class="modal-body" id="modal-model-body">
-        <!-- Detalhes populados dinamicamente via JS -->
+      <div class="footer-bottom">
+        <span>&copy; 2026 TokenPulse. Código aberto sob a licença MIT.</span>
+        <span>Observe your AI.</span>
       </div>
     </div>
-  </div>
+  </footer>
 
-  <!-- TOAST NOTIFICATIONS CONTAINER -->
-  <div id="toast-container" class="toast-container"></div>
+  <script>
+    // Inicializar ícones Lucide
+    if (window.lucide) {
+      lucide.createIcons();
+    }
 
-  <!-- Application Scripts with cache buster -->
-  <script src="js/utils.js?v=2.1.0"></script>
-  <script src="js/storage.js?v=2.1.0"></script>
-  <script src="js/api.js?v=2.1.0"></script>
-  <script src="js/alerts.js?v=2.1.0"></script>
-  <script src="js/charts.js?v=2.1.0"></script>
-  <script src="js/metrics.js?v=2.1.0"></script>
-  <script src="js/providers.js?v=2.1.0"></script>
-  <script src="js/export.js?v=2.1.0"></script>
-  <script src="js/app.js?v=2.1.0"></script>
+    // Adaptar botões da Navbar se já estiver autenticado
+    const token = localStorage.getItem('tp_token');
+    const username = localStorage.getItem('tp_username');
+    if (token) {
+      const actionsEl = document.getElementById('nav-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = `
+          <span style="font-size: 0.875rem; color: var(--text-muted);">Olá, <strong>${username || 'Usuário'}</strong></span>
+          <a href="/dashboard.html" class="btn btn-primary">
+            <i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i>
+            Ir para o Dashboard
+          </a>
+        `;
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+  </script>
 </body>
 </html>

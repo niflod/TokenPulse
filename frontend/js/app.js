@@ -11,18 +11,25 @@ const App = {
   _logsLimit: 50,
 
   async init() {
-    // Check JWT authentication
+    // Check if demo mode is requested via URL (?demo=true)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('demo') === 'true') {
+      Storage.setDemoMode(true);
+    }
+
+    this._isDemoMode = Storage.getDemoMode();
+
+    // Check JWT authentication (allow if demo mode is active)
     const token = localStorage.getItem('tp_token');
-    if (!token) {
+    if (!token && !this._isDemoMode) {
       window.location.href = '/login.html';
       return;
     }
 
-    const username = localStorage.getItem('tp_username') || 'admin';
+    const username = localStorage.getItem('tp_username') || (this._isDemoMode ? 'Visitante (Demo)' : 'admin');
     const userDisplay = document.getElementById('user-display-name');
     if (userDisplay) userDisplay.textContent = username;
 
-    this._isDemoMode = Storage.getDemoMode();
     this.updateDemoBanner();
 
     // Initialize Lucide icons
@@ -633,6 +640,10 @@ const App = {
     document.getElementById('btn-exit-demo')?.addEventListener('click', () => {
       this._isDemoMode = false;
       Storage.setDemoMode(false);
+      if (!localStorage.getItem('tp_token')) {
+        window.location.href = '/login.html';
+        return;
+      }
       this.updateDemoBanner();
       Alerts.toast('Modo Demonstração DESATIVADO (Modo Real).', 'info');
       this.refresh();
@@ -642,7 +653,7 @@ const App = {
     document.getElementById('btn-logout')?.addEventListener('click', () => {
       localStorage.removeItem('tp_token');
       localStorage.removeItem('tp_username');
-      window.location.href = '/login.html';
+      window.location.href = '/index.html';
     });
 
     // Global Provider Selector

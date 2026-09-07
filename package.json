@@ -1,0 +1,26 @@
+{
+  "name": "tokenpulse",
+  "version": "2.0.0",
+  "description": "TokenPulse — Observe your AI. Telemetria, Observabilidade e Faturamento Web SaaS para APIs de Inteligência Artificial.",
+  "private": true,
+  "scripts": {
+    "dev": "./start.sh",
+    "start": "./start.sh",
+    "test": "cd backend && .venv/bin/python -m pytest tests/",
+    "build": "echo 'Static frontend ready in frontend/ for Netlify deployment'",
+    "clean": "rm -rf backend/data/*.db* backend/.pytest_cache"
+  },
+  "keywords": [
+    "ai",
+    "observability",
+    "tokens",
+    "dashboard",
+    "saas",
+    "telemetry",
+    "openai",
+    "anthropic",
+    "gemini"
+  ],
+  "author": "TokenPulse Team",
+  "license": "MIT"
+}

@@ -12,7 +12,7 @@ const API_BASE = (() => {
   return '';
 })();
 
-const DASHBOARD_URL = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/' : '/';
+const DASHBOARD_URL = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/dashboard.html' : '/dashboard.html';
 
 // If already authenticated, redirect to dashboard
 const existingToken = localStorage.getItem('tp_token');
