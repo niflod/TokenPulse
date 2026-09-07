@@ -304,6 +304,7 @@ async def _persist_gateway_telemetry(
     fallback_reason: Optional[str] = None,
     cache_hit: bool = False,
     usage_source: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> None:
     """Saves telemetry asynchronously and emits event bus notification."""
     if not settings.telemetry_enabled:
@@ -323,6 +324,7 @@ async def _persist_gateway_telemetry(
     try:
         async with AsyncSessionLocal() as db:
             log_entry = RequestLog(
+                user_id=user_id,
                 provider=provider.lower(),
                 model=model or "unknown",
                 timestamp=datetime.now(timezone.utc),
@@ -355,6 +357,7 @@ async def _persist_gateway_telemetry(
         # Emit live real-time event
         event_name = "request.completed" if status_code < 400 else "request.failed"
         await event_bus.publish(event_name, {
+            "user_id": user_id,
             "request_id": tokenpulse_request_id,
             "provider": provider.lower(),
             "model": model,
@@ -380,6 +383,7 @@ def _dispatch_cache_persistence(
     total_tokens: Optional[int],
     estimated_saved_cost: Optional[float],
     ttl_seconds: int,
+    user_id: Optional[int] = None,
 ) -> None:
     """Dispatches asynchronous cache insertion in background without blocking caller."""
     async def _save_task():
@@ -396,6 +400,7 @@ def _dispatch_cache_persistence(
                     total_tokens=total_tokens,
                     estimated_saved_cost=estimated_saved_cost,
                     ttl_seconds=ttl_seconds,
+                    user_id=user_id,
                 )
         except Exception as err:
             logger.debug("Failed saving response cache: %s", err)
@@ -440,6 +445,8 @@ async def _proxy_request(
     client_ip = request.client.host if request.client else "127.0.0.1"
     client_auth = request.headers.get("authorization") or request.headers.get("x-api-key")
     auth_identity = client_ip
+    tenant_id: Optional[str] = None
+    resolved_user_id: Optional[int] = None
 
     if getattr(settings, "gateway_require_auth", True):
         if not client_auth or not client_auth.strip():
@@ -466,18 +473,36 @@ async def _proxy_request(
                     )
                 k_rec.last_used_at = datetime.now(timezone.utc)
                 await db.commit()
-            auth_identity = f"key_{k_hash[:16]}"
+                if k_rec.user_id:
+                    resolved_user_id = k_rec.user_id
+                    tenant_id = f"user_{k_rec.user_id}"
+                else:
+                    tenant_id = f"key_{k_hash[:16]}"
+            auth_identity = tenant_id
         elif candidate.startswith("tp_dummy_"):
-            auth_identity = f"test_{candidate[:12]}"
+            tenant_id = f"test_{candidate[:12]}"
+            auth_identity = tenant_id
         else:
-            # BYOK key
-            if not getattr(settings, "gateway_allow_byok", True):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Acesso BYOK (Bring Your Own Key) está desabilitado no Gateway. Utilize uma chave virtual TokenPulse (tp_live_...).",
-                )
-            import hashlib
-            auth_identity = f"byok_{hashlib.sha256(candidate.encode('utf-8')).hexdigest()[:16]}"
+            try:
+                from routers.auth import decode_access_token
+                payload = decode_access_token(candidate)
+                if payload and payload.get("user_id"):
+                    resolved_user_id = payload.get("user_id")
+                    tenant_id = f"user_{resolved_user_id}"
+                    auth_identity = tenant_id
+            except Exception:
+                pass
+
+            if not tenant_id:
+                # BYOK key
+                if not getattr(settings, "gateway_allow_byok", True):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Acesso BYOK (Bring Your Own Key) está desabilitado no Gateway. Utilize uma chave virtual TokenPulse (tp_live_...).",
+                    )
+                import hashlib
+                tenant_id = f"byok_{hashlib.sha256(candidate.encode('utf-8')).hexdigest()[:16]}"
+                auth_identity = tenant_id
 
     # 3. Rate Limiting Check (RPM por Identidade Autenticada / IP + Provider)
     client_key = f"{auth_identity}:{clean_provider}"
@@ -530,7 +555,7 @@ async def _proxy_request(
 
     cache_key = None
     if not is_cache_bypassed and body_json:
-        cache_key = compute_gateway_cache_key(clean_provider, model_name, body_json, subpath=subpath)
+        cache_key = compute_gateway_cache_key(clean_provider, model_name, body_json, subpath=subpath, tenant_id=tenant_id)
         async with AsyncSessionLocal() as cache_db:
             cached_entry = await get_cached_response(cache_db, cache_key)
             if cached_entry:
@@ -563,6 +588,7 @@ async def _proxy_request(
                         provider_request_id=f"cache_{cached_entry.cache_key[:12]}",
                         tokenpulse_request_id=tp_req_id,
                         cache_hit=True,
+                        user_id=resolved_user_id,
                     ))
                     return Response(
                         content=cached_entry.response_json.encode("utf-8"),
@@ -670,6 +696,7 @@ async def _proxy_request(
                                 provider_request_id=f"cache_{cached_entry.cache_key[:12]}",
                                 tokenpulse_request_id=tp_req_id,
                                 cache_hit=True,
+                                user_id=resolved_user_id,
                             ))
 
                     return StreamingResponse(
@@ -910,6 +937,7 @@ async def _proxy_request(
                     original_provider=clean_provider if fb_reason else None,
                     original_model=model_name if fb_reason else None,
                     fallback_reason=fb_reason,
+                    user_id=resolved_user_id,
                 ))
 
                 if not is_cache_bypassed:
@@ -928,6 +956,7 @@ async def _proxy_request(
                         total_tokens=total_tokens,
                         estimated_saved_cost=estimated_saved_cost,
                         ttl_seconds=req_cache_ttl,
+                        user_id=resolved_user_id,
                     )
 
                 return Response(
@@ -1095,6 +1124,7 @@ async def _proxy_request(
                             original_model=model_name if fb_reason else None,
                             fallback_reason=fb_reason,
                             usage_source="reported" if any(t is not None for t in (tokens_in, tokens_out, tokens_tot)) else "unknown",
+                            user_id=resolved_user_id,
                         ))
 
                         if upstream_resp.status_code == 200 and cache_key and not is_cache_bypassed and not fb_reason and not err_text and accumulated_content:
@@ -1139,6 +1169,7 @@ async def _proxy_request(
                                 total_tokens=tokens_tot,
                                 estimated_saved_cost=estimated_saved_cost,
                                 ttl_seconds=req_cache_ttl,
+                                user_id=resolved_user_id,
                             )
 
                 return StreamingResponse(
@@ -1165,6 +1196,7 @@ async def _proxy_request(
             provider_request_id=None,
             tokenpulse_request_id=tp_req_id,
             error_msg="Gateway timeout communicating with provider upstream.",
+            user_id=resolved_user_id,
         ))
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -1188,6 +1220,7 @@ async def _proxy_request(
             provider_request_id=None,
             tokenpulse_request_id=tp_req_id,
             error_msg=redact_sensitive_text(str(re)),
+            user_id=resolved_user_id,
         ))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

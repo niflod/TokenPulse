@@ -17,16 +17,19 @@ def compute_gateway_cache_key(
     model: str,
     body_json: Dict[str, Any],
     subpath: Optional[str] = None,
+    tenant_id: Optional[str | int] = None,
 ) -> str:
     """
     Computes a deterministic SHA-256 hash for gateway caching.
     Extracts semantic parameters (provider, model, subpath, messages, temperature, tools)
     and excludes non-semantic/transient flags like stream and user.
+    Partitions cache by tenant_id when provided to prevent cross-tenant data leakage.
     """
     clean_provider = provider.lower().strip()
     clean_model = model.strip()
 
     semantic_payload = {
+        "tenant_id": str(tenant_id).strip() if tenant_id is not None else "",
         "provider": clean_provider,
         "model": clean_model,
         "subpath": subpath.strip("/") if subpath else "",
@@ -85,6 +88,7 @@ async def set_cached_response(
     total_tokens: Optional[int] = None,
     estimated_saved_cost: Optional[float] = None,
     ttl_seconds: int = 3600,
+    user_id: Optional[int] = None,
 ) -> GatewayResponseCache:
     """Stores or updates a cached response with specified TTL."""
     now = datetime.now(timezone.utc)
@@ -105,11 +109,14 @@ async def set_cached_response(
         existing.total_tokens = total_tokens
         existing.estimated_saved_cost = estimated_saved_cost
         existing.expires_at = expires
+        if user_id is not None:
+            existing.user_id = user_id
         await db.commit()
         return existing
 
     new_entry = GatewayResponseCache(
         cache_key=cache_key,
+        user_id=user_id,
         provider=provider.lower().strip(),
         model=model.strip(),
         response_json=response_json,

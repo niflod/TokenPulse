@@ -1164,13 +1164,22 @@
     if (token) {
       const actionsEl = document.getElementById('nav-actions');
       if (actionsEl) {
-        actionsEl.innerHTML = `
-          <span style="font-size: 0.875rem; color: var(--text-muted);">Olá, <strong>${username || 'Usuário'}</strong></span>
-          <a href="/dashboard.html" class="btn btn-primary">
-            <i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i>
-            Ir para o Dashboard
-          </a>
-        `;
+        actionsEl.innerHTML = '';
+        const greetingSpan = document.createElement('span');
+        greetingSpan.style.fontSize = '0.875rem';
+        greetingSpan.style.color = 'var(--text-muted)';
+        greetingSpan.appendChild(document.createTextNode('Olá, '));
+        const userStrong = document.createElement('strong');
+        userStrong.textContent = username || 'Usuário';
+        greetingSpan.appendChild(userStrong);
+
+        const dashLink = document.createElement('a');
+        dashLink.href = '/dashboard.html';
+        dashLink.className = 'btn btn-primary';
+        dashLink.innerHTML = '<i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i> Ir para o Dashboard';
+
+        actionsEl.appendChild(greetingSpan);
+        actionsEl.appendChild(dashLink);
         if (window.lucide) lucide.createIcons();
       }
     }

@@ -163,3 +163,94 @@ async def test_require_admin_fails_closed_and_rejects_query_token(monkeypatch):
         # 3. Passing JWT via standard Authorization: Bearer header is accepted
         r_bearer = await client.get("/api/keys", headers={"Authorization": f"Bearer {valid_jwt}"})
         assert r_bearer.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_realtime_ticket_requires_auth():
+    """Verify requesting realtime stream tickets requires authentication and rejects anonymous callers."""
+    from routers.auth import create_access_token
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Anonymous request for ticket -> 401
+        res_anon = await client.post("/api/realtime/ticket")
+        assert res_anon.status_code == 401
+
+        # 2. Authenticated user requests ticket -> 200 with ticket
+        token, _ = create_access_token("alice", user_id=42)
+        res_auth = await client.post("/api/realtime/ticket", headers={"Authorization": f"Bearer {token}"})
+        assert res_auth.status_code == 200
+        data = res_auth.json()
+        assert "ticket" in data
+        assert data["ticket"].startswith("ssec_")
+        assert data["user_id"] == 42
+
+        # 3. Invalid ticket rejected with 401 on stream
+        res_bad_stream = await client.get("/api/realtime/stream?ticket=ssec_invalid_fake")
+        assert res_bad_stream.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_realtime_sse_event_and_metrics_isolation():
+    """Verify event_generator filters real-time events to only match the connected user_id."""
+    import asyncio
+    from services.event_bus import event_bus
+    from routers.realtime import event_generator
+
+    gen_alice = event_generator(user_id=101)
+
+    # Prime generator
+    task = asyncio.create_task(gen_alice.__anext__())
+    await asyncio.sleep(0.05)
+
+    # 1. Publish event belonging to Bob (user_id=102) -> Alice should NOT receive it
+    await event_bus.publish("request.completed", {
+        "user_id": 102,
+        "provider": "openai",
+        "model": "gpt-4o",
+        "tokens": 50,
+    })
+    await asyncio.sleep(0.05)
+    assert not task.done()
+
+    # 2. Publish event belonging to Alice (user_id=101) -> Alice MUST receive it
+    await event_bus.publish("request.completed", {
+        "user_id": 101,
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet",
+        "tokens": 120,
+    })
+    event_str = await asyncio.wait_for(task, timeout=1.0)
+    assert "claude-3-5-sonnet" in event_str
+    assert '"user_id": 101' in event_str
+
+    await gen_alice.aclose()
+
+
+@pytest.mark.asyncio
+async def test_realtime_ticket_rate_limiting(monkeypatch):
+    """Verify rate limiting on /api/realtime/ticket returns 429 when threshold exceeded."""
+    from config import settings
+    monkeypatch.setattr(settings, "auth_rate_limit_rpm", 5)
+
+    ip = "198.51.100.99"
+    transport = httpx.ASGITransport(app=app, client=(ip, 54321))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register user to get JWT
+        reg_res = await client.post("/api/auth/register", json={
+            "username": "sse_tenant",
+            "email": "sse@tenant.com",
+            "password": "Password123!",
+        })
+        token = reg_res.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Request 5 tickets (within limit)
+        for _ in range(5):
+            res = await client.post("/api/realtime/ticket", headers=headers)
+            assert res.status_code == 200
+
+        # 6th request should be throttled (429)
+        throttled = await client.post("/api/realtime/ticket", headers=headers)
+        assert throttled.status_code == 429
+        assert "Retry-After" in throttled.headers

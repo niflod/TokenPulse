@@ -230,3 +230,131 @@ async def test_auth_change_password():
         )
         assert new_login.status_code == 200
         assert "token" in new_login.json()
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_xss_and_malicious_characters():
+    """Verify registration rejects usernames containing HTML/script tags or illegal characters with 422."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Script tag injection
+        res1 = await client.post("/api/auth/register", json={
+            "username": "<script>alert(1)</script>",
+            "email": "valid@email.com",
+            "password": "password123",
+        })
+        assert res1.status_code == 422
+
+        # 2. Img onerror injection
+        res2 = await client.post("/api/auth/register", json={
+            "username": '<img src=x onerror="alert(1)">',
+            "email": "valid@email.com",
+            "password": "password123",
+        })
+        assert res2.status_code == 422
+
+        # 3. Invalid email format
+        res3 = await client.post("/api/auth/register", json={
+            "username": "valid_user-123",
+            "email": "not-an-email",
+            "password": "password123",
+        })
+        assert res3.status_code == 422
+
+        # 4. Valid sanitized registration succeeds
+        res_ok = await client.post("/api/auth/register", json={
+            "username": "valid_user.name-99",
+            "email": "user99@email.com",
+            "password": "password123",
+        })
+        assert res_ok.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limiting_login_and_register():
+    """Verify brute-force rate limiting on /login and /register returns 429 with Retry-After header."""
+    ip = "198.51.100.77"
+    transport = httpx.ASGITransport(app=app, client=(ip, 54321))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Setup admin first
+        await client.post("/api/auth/setup", json={"username": "admin", "password": "password123"})
+
+        # 2. Login rate limit is 15 rpm. Make 15 failed logins
+        for i in range(15):
+            res = await client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": f"wrongpass{i}"},
+            )
+            assert res.status_code == 401
+
+        # 16th request must be throttled with 429
+        throttled_res = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "wrongpass16"},
+        )
+        assert throttled_res.status_code == 429
+        assert "Retry-After" in throttled_res.headers
+        assert int(throttled_res.headers["Retry-After"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_register_account_enumeration_defense():
+    """Verify duplicate username and duplicate email return identical generic 409 messages."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Register initial user
+        init_res = await client.post("/api/auth/register", json={
+            "username": "victim_alice",
+            "email": "alice@company.com",
+            "password": "Password123!",
+        })
+        assert init_res.status_code == 201
+
+        expected_msg = "As informações de cadastro informadas já estão em uso. Tente outro nome de usuário ou e-mail, ou faça login."
+
+        # 2. Duplicate username attempt
+        dup_username = await client.post("/api/auth/register", json={
+            "username": "victim_alice",
+            "email": "different_email@company.com",
+            "password": "Password123!",
+        })
+        assert dup_username.status_code == 409
+        assert dup_username.json()["detail"] == expected_msg
+
+        # 3. Duplicate email attempt
+        dup_email = await client.post("/api/auth/register", json={
+            "username": "different_bob",
+            "email": "alice@company.com",
+            "password": "Password123!",
+        })
+        assert dup_email.status_code == 409
+        assert dup_email.json()["detail"] == expected_msg
+
+
+@pytest.mark.asyncio
+async def test_login_constant_failure_response():
+    """Verify login failure returns generic message for both non-existent user and wrong password."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register user
+        await client.post("/api/auth/register", json={
+            "username": "realuser",
+            "email": "real@domain.com",
+            "password": "SecretPassword123",
+        })
+
+        # Non-existent user
+        res_nonexistent = await client.post("/api/auth/login", json={
+            "username": "fakeuser",
+            "password": "SecretPassword123",
+        })
+        assert res_nonexistent.status_code == 401
+        assert res_nonexistent.json()["detail"] == "Credenciais inválidas."
+
+        # Real user with wrong password
+        res_wrong_pw = await client.post("/api/auth/login", json={
+            "username": "realuser",
+            "password": "WrongPassword999",
+        })
+        assert res_wrong_pw.status_code == 401
+        assert res_wrong_pw.json()["detail"] == "Credenciais inválidas."

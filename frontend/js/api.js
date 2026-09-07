@@ -5,7 +5,21 @@
 const API = {
   BASE_URL: (() => {
     const customApi = localStorage.getItem('tp_api_url');
-    if (customApi) return customApi.replace(/\/+$/, '');
+    if (customApi) {
+      try {
+        const parsed = new URL(customApi, window.location.origin);
+        const allowedHostnames = ['localhost', '127.0.0.1', window.location.hostname];
+        if (allowedHostnames.includes(parsed.hostname) || parsed.origin === window.location.origin) {
+          return customApi.replace(/\/+$/, '');
+        } else {
+          console.warn('TokenPulse Security: tp_api_url não autorizado ignorado para evitar exfiltração:', parsed.origin);
+          localStorage.removeItem('tp_api_url');
+        }
+      } catch (e) {
+        console.warn('TokenPulse Security: tp_api_url inválido ignorado:', customApi);
+        localStorage.removeItem('tp_api_url');
+      }
+    }
     if (window.location.protocol === 'file:') return 'http://127.0.0.1:8000';
     if (window.location.port !== '8000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
       return `http://${window.location.hostname}:8000`;

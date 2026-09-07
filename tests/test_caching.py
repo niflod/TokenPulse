@@ -444,4 +444,118 @@ async def test_cache_service_eviction():
         assert check is None
 
 
+@pytest.mark.asyncio
+async def test_gateway_multi_tenant_cache_isolation():
+    """Verify two distinct tenants sending identical prompts receive isolated cache partitions."""
+    import asyncio
+    import httpx
+    from main import app
+    from models import User, ClientApiKey
+    from routers.api_keys import hash_key
+
+    upstream_calls = 0
+
+    def mock_handler(req: httpx.Request):
+        nonlocal upstream_calls
+        upstream_calls += 1
+        return httpx.Response(200, json={
+            "id": f"chatcmpl-call-{upstream_calls}",
+            "choices": [{"message": {"role": "assistant", "content": f"Answer #{upstream_calls}"}}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 15, "total_tokens": 27},
+        })
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(mock_handler))
+    app.state.http_client = mock_client
+
+    from config import settings
+    old_openai = settings.openai_api_key
+    settings.openai_api_key = "sk-mock-openai-isolation-test"
+
+    import uuid
+    rnd = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user_a = User(username=f"tenant_a_{rnd}", email=f"a_{rnd}@tenant.com", password_hash="hash")
+        user_b = User(username=f"tenant_b_{rnd}", email=f"b_{rnd}@tenant.com", password_hash="hash")
+        db.add_all([user_a, user_b])
+        await db.flush()
+
+        raw_key_a = f"tp_live_tenant_a_key_{rnd}"
+        raw_key_b = f"tp_live_tenant_b_key_{rnd}"
+
+        key_a = ClientApiKey(
+            user_id=user_a.id,
+            name="Key A",
+            key_prefix="tp_live_tena...",
+            key_hash=hash_key(raw_key_a),
+            enabled=True,
+        )
+        key_b = ClientApiKey(
+            user_id=user_b.id,
+            name="Key B",
+            key_prefix="tp_live_tenb...",
+            key_hash=hash_key(raw_key_b),
+            enabled=True,
+        )
+        db.add_all([key_a, key_b])
+        await db.commit()
+
+    try:
+        asgi_transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=asgi_transport, base_url="http://test") as client:
+            identical_payload = {
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Confidential financial prompt identical for both"}],
+            }
+
+            # 1. Tenant A sends request -> MISS, upstream called once
+            res_a1 = await client.post(
+                "/gateway/openai/v1/chat/completions",
+                json=identical_payload,
+                headers={"Authorization": f"Bearer {raw_key_a}"},
+            )
+            assert res_a1.status_code == 200
+            assert res_a1.headers.get("X-TokenPulse-Cache") == "MISS"
+            assert upstream_calls == 1
+
+            # Allow background cache saving task to settle
+            await asyncio.sleep(0.15)
+
+            # 2. Tenant B sends the EXACT same prompt with Key B
+            # CRITICAL ISOLATION CHECK: Must be a MISS, upstream MUST be called again!
+            res_b1 = await client.post(
+                "/gateway/openai/v1/chat/completions",
+                json=identical_payload,
+                headers={"Authorization": f"Bearer {raw_key_b}"},
+            )
+            assert res_b1.status_code == 200
+            assert res_b1.headers.get("X-TokenPulse-Cache") == "MISS"
+            assert upstream_calls == 2  # Proves Tenant B did not receive Tenant A's cached response!
+
+            await asyncio.sleep(0.15)
+
+            # 3. Tenant A repeats request -> HIT, upstream NOT called
+            res_a2 = await client.post(
+                "/gateway/openai/v1/chat/completions",
+                json=identical_payload,
+                headers={"Authorization": f"Bearer {raw_key_a}"},
+            )
+            assert res_a2.status_code == 200
+            assert res_a2.headers.get("X-TokenPulse-Cache") == "HIT"
+            assert upstream_calls == 2
+
+            # 4. Tenant B repeats request -> HIT, upstream NOT called
+            res_b2 = await client.post(
+                "/gateway/openai/v1/chat/completions",
+                json=identical_payload,
+                headers={"Authorization": f"Bearer {raw_key_b}"},
+            )
+            assert res_b2.status_code == 200
+            assert res_b2.headers.get("X-TokenPulse-Cache") == "HIT"
+            assert upstream_calls == 2
+    finally:
+        settings.openai_api_key = old_openai
+        await mock_client.aclose()
+
+
+
 

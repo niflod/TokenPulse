@@ -171,6 +171,13 @@ async def init_db() -> None:
                 sync_conn.execute(text("ALTER TABLE fallback_rules ADD COLUMN user_id INTEGER"))
                 logger.info("Migrated SQLite: added column user_id to fallback_rules")
 
+            # Migrate gateway_response_cache
+            res_cache = sync_conn.execute(text("PRAGMA table_info(gateway_response_cache)"))
+            cache_cols = {row[1] for row in res_cache.fetchall()}
+            if "user_id" not in cache_cols:
+                sync_conn.execute(text("ALTER TABLE gateway_response_cache ADD COLUMN user_id INTEGER"))
+                logger.info("Migrated SQLite: added column user_id to gateway_response_cache")
+
         if "sqlite" in settings.database_url:
             await conn.run_sync(_migrate_sqlite_columns)
 

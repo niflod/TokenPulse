@@ -102,11 +102,16 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down TokenPulse backend.")
 
 
+is_production = getattr(settings, "environment", "development").strip().lower() == "production"
+
 app = FastAPI(
     title="TokenPulse — Observe your AI",
     description="Observability and real-time usage monitoring for AI APIs (OpenAI, Anthropic, Gemini)",
     version="1.1.0",
     lifespan=lifespan,
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
 
 # CORS middleware — restricted to trusted local origins
@@ -153,6 +158,7 @@ _PUBLIC_PREFIXES = (
     "/api/auth/setup",
     "/api/auth/status",
     "/api/ping",
+    "/api/metrics/demo",
     "/api/gateway/health",
     "/gateway",
     "/docs",
@@ -184,8 +190,10 @@ async def jwt_auth_middleware(request, call_next):
     elif path == "/api/realtime/stream":
         ticket = request.query_params.get("ticket")
         if ticket:
-            from routers.realtime import validate_and_consume_ticket
-            if validate_and_consume_ticket(ticket):
+            from routers.realtime import consume_stream_ticket
+            is_valid, user_id = consume_stream_ticket(ticket)
+            if is_valid:
+                request.state.user_id = user_id
                 return await call_next(request)
             return JSONResponse(
                 status_code=401,
@@ -206,13 +214,6 @@ async def jwt_auth_middleware(request, call_next):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return await call_next(request)
-
-    # Also accept X-Admin-Key for backwards compatibility
-    admin_key = request.headers.get("x-admin-key", "")
-    if admin_key and settings.admin_api_key:
-        import hmac
-        if hmac.compare_digest(admin_key.encode(), settings.admin_api_key.encode()):
-            return await call_next(request)
 
     return JSONResponse(
         status_code=401,

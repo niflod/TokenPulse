@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     log_retention_days: int = 90  # days
     gateway_rate_limit_rpm: int = 120  # requests per minute per IP
+    auth_rate_limit_rpm: int = 30  # requests per minute per IP on auth routes
     jwt_expiration_hours: int = 24  # JWT token TTL
     alert_webhook_url: Optional[str] = None  # Webhook (Discord/Slack/Generic) for triggered alerts
     provider_monthly_budget: Optional[float] = None  # Hard monthly budget limit in USD per provider

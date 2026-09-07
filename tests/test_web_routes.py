@@ -99,3 +99,64 @@ async def test_nonexistent_route_returns_404():
         assert res.status_code == 404
         assert "404" in res.text
         assert "Página Não Encontrada" in res.text
+
+
+@pytest.mark.asyncio
+async def test_public_demo_endpoint_accessible_without_auth():
+    """Garante que /api/metrics/demo seja publicamente acessível para o tour de demonstração."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/metrics/demo")
+        assert res.status_code == 200
+        data = res.json()
+        assert data.get("demo") is True
+        assert "summary" in data
+        assert "timeseries" in data
+
+
+@pytest.mark.asyncio
+async def test_production_docs_suppression(monkeypatch):
+    """Verifica se /docs e /openapi.json são desativados quando o ambiente é production."""
+    import importlib
+    import main as main_module
+    from config import settings
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "secret_key", "012345678901234567890123456789012345")
+
+    # Recarrega módulo principal para aplicar docs_url=None em production
+    prod_app = importlib.reload(main_module).app
+    transport = httpx.ASGITransport(app=prod_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_docs = await client.get("/docs")
+        assert res_docs.status_code == 404
+
+        res_openapi = await client.get("/openapi.json")
+        assert res_openapi.status_code == 404
+
+    # Restaura módulo com ambiente padrão
+    monkeypatch.setattr(settings, "environment", "development")
+    importlib.reload(main_module)
+
+
+def test_netlify_toml_security_headers():
+    """Valida presença dos cabeçalhos CSP e HSTS no arquivo netlify.toml."""
+    toml_path = Path(__file__).resolve().parent.parent / "netlify.toml"
+    assert toml_path.exists()
+    content = toml_path.read_text(encoding="utf-8")
+
+    assert "Strict-Transport-Security" in content
+    assert "max-age=31536000; includeSubDomains" in content
+    assert "Content-Security-Policy" in content
+    assert "default-src 'self'" in content
+    assert "https://cdn.jsdelivr.net" in content
+
+
+@pytest.mark.asyncio
+async def test_jwt_middleware_rejects_anonymous_admin_key_on_protected_endpoints():
+    """Garante que X-Admin-Key isolado sem token de usuário seja rejeitado no middleware comum."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/api/logs", headers={"X-Admin-Key": "any-key-value"})
+        assert res.status_code == 401
+        assert "Autenticação necessária" in res.json()["detail"]

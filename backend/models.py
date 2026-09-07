@@ -216,6 +216,7 @@ class GatewayResponseCache(Base):
     __tablename__ = "gateway_response_cache"
 
     cache_key: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     response_json: Mapped[str] = mapped_column(Text, nullable=False)

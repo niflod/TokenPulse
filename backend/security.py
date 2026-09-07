@@ -282,21 +282,53 @@ class InMemoryRateLimiter:
         self.rpm = requests_per_minute
         self._history: dict[str, list[float]] = defaultdict(list)
 
-    def is_allowed(self, client_key: str) -> tuple[bool, int]:
-        if self.rpm <= 0:
+    def is_allowed(self, client_key: str, custom_rpm: Optional[int] = None) -> tuple[bool, int]:
+        rpm = custom_rpm if custom_rpm is not None else self.rpm
+        if rpm <= 0:
             return True, 0
         now = time.time()
         window_start = now - 60.0
         # Filter timestamps within current 60s window
         history = [t for t in self._history[client_key] if t > window_start]
-        if len(history) >= self.rpm:
+        if len(history) >= rpm:
             retry_after = int(60.0 - (now - history[0])) + 1
             return False, max(1, retry_after)
         history.append(now)
         self._history[client_key] = history
         return True, 0
 
+    def reset(self) -> None:
+        """Clears sliding window request history for all keys."""
+        self._history.clear()
+
 
 gateway_rate_limiter = InMemoryRateLimiter(settings.gateway_rate_limit_rpm)
+auth_rate_limiter = InMemoryRateLimiter(settings.auth_rate_limit_rpm)
+
+
+def get_client_ip(request: Request) -> str:
+    """Safely retrieves the client's IP address from headers or connection."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
+
+
+def check_auth_rate_limit(request: Request, action: str = "auth", custom_rpm: Optional[int] = None) -> None:
+    """
+    Enforces sliding-window rate limit on authentication endpoints by client IP.
+    Raises HTTP 429 Too Many Requests with Retry-After header if limit exceeded.
+    """
+    client_ip = get_client_ip(request)
+    key = f"{action}:{client_ip}"
+    allowed, retry_after = auth_rate_limiter.is_allowed(key, custom_rpm=custom_rpm)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas. Aguarde antes de tentar novamente.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 

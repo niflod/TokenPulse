@@ -16,7 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import ClientApiKey
+from models import ClientApiKey, User
+from routers.auth import get_current_user
 from security import require_admin
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,15 @@ def hash_key(raw_key: str) -> str:
 
 
 @router.get("", response_model=List[ClientKeyOut], dependencies=[Depends(require_admin)])
-async def list_client_keys(db: AsyncSession = Depends(get_db)):
-    """List all issued client API keys."""
-    stmt = select(ClientApiKey).order_by(ClientApiKey.id.desc())
+async def list_client_keys(
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """List all issued client API keys for the current user (or all if admin)."""
+    stmt = select(ClientApiKey)
+    if user and user.username != "admin":
+        stmt = stmt.where(ClientApiKey.user_id == user.id)
+    stmt = stmt.order_by(ClientApiKey.id.desc())
     keys = (await db.execute(stmt)).scalars().all()
     return [
         ClientKeyOut(
@@ -73,15 +80,18 @@ async def list_client_keys(db: AsyncSession = Depends(get_db)):
     dependencies=[Depends(require_admin)],
 )
 async def create_client_key(
-    data: ClientKeyCreateIn, db: AsyncSession = Depends(get_db)
+    data: ClientKeyCreateIn,
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Generate and issue a new client API key."""
+    """Generate and issue a new client API key bound to current user."""
     raw_random = secrets.token_hex(20)
     raw_key = f"tp_live_{raw_random}"
     prefix = f"tp_live_{raw_random[:4]}..."
     k_hash = hash_key(raw_key)
 
     record = ClientApiKey(
+        user_id=user.id if user else None,
         name=data.name.strip(),
         key_prefix=prefix,
         key_hash=k_hash,
@@ -104,9 +114,15 @@ async def create_client_key(
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
-async def revoke_client_key(id: int, db: AsyncSession = Depends(get_db)):
+async def revoke_client_key(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Revoke and delete a client API key."""
     stmt = select(ClientApiKey).where(ClientApiKey.id == id)
+    if user and user.username != "admin":
+        stmt = stmt.where(ClientApiKey.user_id == user.id)
     record = (await db.execute(stmt)).scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="Chave de cliente não encontrada.")
@@ -114,9 +130,15 @@ async def revoke_client_key(id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{id}/toggle", response_model=ClientKeyOut, dependencies=[Depends(require_admin)])
-async def toggle_client_key(id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_client_key(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Enable or disable a client API key."""
     stmt = select(ClientApiKey).where(ClientApiKey.id == id)
+    if user and user.username != "admin":
+        stmt = stmt.where(ClientApiKey.user_id == user.id)
     record = (await db.execute(stmt)).scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="Chave de cliente não encontrada.")
