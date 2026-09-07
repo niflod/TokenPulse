@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /favicon.svg
+Allow: /assets/
+Disallow: /dashboard
+Disallow: /dashboard.html
+Disallow: /app
+Disallow: /login
+Disallow: /login.html
+Disallow: /signup
+Disallow: /signup.html
+Disallow: /api/
+
+Sitemap: https://tokenpulse.netlify.app/sitemap.xml

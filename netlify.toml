@@ -33,11 +33,11 @@
   to = "/login.html"
   status = 200
 
-# SPA fallback
+# 404 fallback (prevents soft-404 duplicate indexing)
 [[redirects]]
   from = "/*"
-  to = "/index.html"
-  status = 200
+  to = "/404.html"
+  status = 404
 
 [[headers]]
   for = "/*"

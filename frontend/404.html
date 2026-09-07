@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>404 — Página Não Encontrada | TokenPulse</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+  <!-- Fontes Google -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --bg-app: #080A0F;
+      --bg-card: #0D1118;
+      --border-color: #1B2330;
+      --text-main: #F5F7FA;
+      --text-muted: #9AA4B2;
+      --accent: #4D8DFF;
+      --ai-accent: #8B7CFF;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-app);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+
+    .error-container {
+      max-width: 520px;
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 3.5rem 2rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.625rem;
+      font-weight: 800;
+      font-size: 1.125rem;
+      margin-bottom: 2rem;
+      text-decoration: none;
+      color: #fff;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .error-code {
+      font-family: var(--font-mono);
+      font-size: 5rem;
+      font-weight: 800;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1rem;
+      letter-spacing: -0.04em;
+    }
+
+    .error-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      color: #fff;
+    }
+
+    .error-desc {
+      color: var(--text-muted);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+      margin-bottom: 2.25rem;
+    }
+
+    .btn-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      background: linear-gradient(135deg, var(--accent), var(--ai-accent));
+      color: #fff;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      text-decoration: none;
+      transition: transform 0.15s, opacity 0.2s;
+    }
+
+    .btn-home:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <div class="error-container">
+    <a href="/" class="brand-logo">
+      <div class="brand-icon">
+        <i data-lucide="activity" style="width: 18px; height: 18px;"></i>
+      </div>
+      <span>TOKENPULSE</span>
+    </a>
+
+    <div class="error-code">404</div>
+    <h1 class="error-title">Página Não Encontrada</h1>
+    <p class="error-desc">
+      O recurso ou link que você tentou acessar não existe, foi movido ou a URL foi digitada incorretamente.
+    </p>
+
+    <a href="/" class="btn-home">
+      <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+      Voltar para a Página Inicial
+    </a>
+  </div>
+
+  <script>
+    if (window.lucide) lucide.createIcons();
+  </script>
+</body>
+</html>

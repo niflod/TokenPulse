@@ -3,8 +3,113 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TokenPulse — Observe your AI | Observabilidade e Custos de IA</title>
-  
+  <title>TokenPulse — Monitore custos e uso de APIs de IA (OpenAI, Claude, Gemini)</title>
+  <meta name="description" content="Monitore gastos, limites e projeções de faturas para APIs de OpenAI, Claude e Gemini em tempo real diretamente pelo navegador. Sem terminal e sem Docker." />
+  <link rel="canonical" href="https://tokenpulse.netlify.app/" />
+
+  <!-- Favicon & Touch Icons -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="pt_BR" />
+  <meta property="og:site_name" content="TokenPulse" />
+  <meta property="og:title" content="TokenPulse — Monitore custos e uso de APIs de IA (OpenAI, Claude, Gemini)" />
+  <meta property="og:description" content="Monitore gastos, limites e projeções de faturas para APIs de OpenAI, Claude e Gemini em tempo real diretamente pelo navegador. Sem terminal e sem Docker." />
+  <meta property="og:url" content="https://tokenpulse.netlify.app/" />
+  <meta property="og:image" content="https://tokenpulse.netlify.app/assets/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="TokenPulse — Dashboard de Observabilidade e Custos de IA" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="TokenPulse — Monitore custos e uso de APIs de IA (OpenAI, Claude, Gemini)" />
+  <meta name="twitter:description" content="Monitore gastos, limites e projeções de faturas para APIs de OpenAI, Claude e Gemini em tempo real diretamente pelo navegador. Sem terminal e sem Docker." />
+  <meta name="twitter:image" content="https://tokenpulse.netlify.app/assets/og-image.png" />
+
+  <!-- Structured Data / JSON-LD: FAQPage & Organization -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://tokenpulse.netlify.app/#organization",
+        "name": "TokenPulse",
+        "url": "https://tokenpulse.netlify.app/",
+        "logo": "https://tokenpulse.netlify.app/favicon.svg",
+        "sameAs": [
+          "https://github.com/dolfin/ai-usage-dashboard"
+        ]
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "https://tokenpulse.netlify.app/#webapp",
+        "name": "TokenPulse",
+        "url": "https://tokenpulse.netlify.app/",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web Browser",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "BRL"
+        },
+        "publisher": {
+          "@id": "https://tokenpulse.netlify.app/#organization"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://tokenpulse.netlify.app/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "O TokenPulse é gratuito?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Sim. O TokenPulse é 100% gratuito e de código aberto sob a licença MIT. Você pode utilizar a versão hospedada na web ou rodar a aplicação em seu próprio ambiente sem qualquer taxa de assinatura ou limites ocultos."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "É seguro inserir minhas chaves de API no TokenPulse?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Sim. Suas chaves de provedor são criptografadas em repouso com algoritmo simétrico Fernet, utilizando derivação de chaves via HKDF (SHA-256) e salt exclusivo por usuário. As chaves nunca são expostas em texto puro nem retornadas para a interface web."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Quais provedores de IA posso monitorar?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "O TokenPulse oferece suporte nativo à sincronização direta e telemetria de consumo para OpenAI (modelos GPT-4o, o1, o3-mini), Anthropic (Claude 3.5 Sonnet), Google Gemini (Gemini 2.0 Flash), Groq e OpenRouter."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Preciso instalar algo no meu computador ou alterar meu código?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Não. Diferente de ferramentas legadas de terminal ou proxy local, o TokenPulse opera diretamente no navegador. Basta conectar suas chaves de organização no painel web para sincronizar gastos e limites automaticamente."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Como funciona a estimativa de fatura e o burn rate?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "O sistema calcula sua taxa de consumo horário (burn rate) em tempo real e projeta o valor estimado da fatura de final de mês e o tempo restante até o teto da sua cota de API, emitindo alertas antes que ocorra bloqueio por limite."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+
   <!-- Fontes Google: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -588,6 +693,48 @@
       font-size: 0.875rem;
     }
 
+    /* ── FAQ Section ────────────────────────────────────────────────── */
+    .faq-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .faq-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem 2rem;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+
+    .faq-item:hover {
+      border-color: var(--border-focus);
+    }
+
+    .faq-question {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .faq-question i {
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .faq-answer {
+      color: var(--text-muted);
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
     /* ── Call to Action Banner ──────────────────────────────────────── */
     .cta-box {
       background: linear-gradient(135deg, rgba(77, 141, 255, 0.12), rgba(139, 124, 255, 0.08));
@@ -669,6 +816,7 @@
         <li><a href="#como-funciona" class="nav-link">Como Funciona</a></li>
         <li><a href="#provedores" class="nav-link">Provedores</a></li>
         <li><a href="#seguranca" class="nav-link">Segurança</a></li>
+        <li><a href="#faq" class="nav-link">FAQ</a></li>
       </ul>
 
       <div class="nav-actions" id="nav-actions">
@@ -895,6 +1043,69 @@
     </div>
   </section>
 
+  <!-- FAQ SECTION -->
+  <section class="section" id="faq" style="border-top: 1px solid var(--border-color);">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-tag">Dúvidas Frequentes</div>
+        <h2 class="section-title">Perguntas Frequentes</h2>
+        <p class="section-subtitle">Tudo o que você precisa saber sobre custos, segurança e funcionamento do TokenPulse.</p>
+      </div>
+
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3 class="faq-question">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+            O TokenPulse é gratuito?
+          </h3>
+          <p class="faq-answer">
+            Sim. O TokenPulse é 100% gratuito e de código aberto sob a licença MIT. Você pode utilizar a versão hospedada na web ou rodar a aplicação em seu próprio ambiente sem qualquer taxa de assinatura ou limites ocultos.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+            É seguro inserir minhas chaves de API no TokenPulse?
+          </h3>
+          <p class="faq-answer">
+            Sim. Suas chaves de provedor são criptografadas em repouso com algoritmo simétrico Fernet, utilizando derivação de chaves via HKDF (SHA-256) e salt exclusivo por usuário. As chaves nunca são expostas em texto puro nem retornadas para a interface web.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+            Quais provedores de IA posso monitorar?
+          </h3>
+          <p class="faq-answer">
+            O TokenPulse oferece suporte nativo à sincronização direta e telemetria de consumo para OpenAI (modelos GPT-4o, o1, o3-mini), Anthropic (Claude 3.5 Sonnet), Google Gemini (Gemini 2.0 Flash), Groq e OpenRouter.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+            Preciso instalar algo no meu computador ou alterar meu código?
+          </h3>
+          <p class="faq-answer">
+            Não. Diferente de ferramentas legadas de terminal ou proxy local, o TokenPulse opera diretamente no navegador. Basta conectar suas chaves de organização no painel web para sincronizar gastos e limites automaticamente.
+          </p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px;"></i>
+            Como funciona a estimativa de fatura e o burn rate?
+          </h3>
+          <p class="faq-answer">
+            O sistema calcula sua taxa de consumo horário (burn rate) em tempo real e projeta o valor estimado da fatura de final de mês e o tempo restante até o teto da sua cota de API, emitindo alertas antes que ocorra bloqueio por limite.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- CTA BANNER -->
   <section class="section">
     <div class="container">
@@ -923,10 +1134,15 @@
           </div>
           <span class="brand-title">TOKENPULSE</span>
         </div>
-        <div style="display: flex; gap: 1.5rem; font-size: 0.9375rem; color: var(--text-muted);">
+        <div style="display: flex; gap: 1.5rem; font-size: 0.9375rem; color: var(--text-muted); align-items: center; flex-wrap: wrap;">
+          <a href="#faq" class="nav-link">FAQ</a>
           <a href="/dashboard.html?demo=true" style="color: var(--accent);">Demonstração</a>
           <a href="/login.html">Login</a>
           <a href="/signup.html">Cadastro</a>
+          <a href="https://github.com/dolfin/ai-usage-dashboard" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; color: var(--text-main); font-weight: 500;">
+            <i data-lucide="github" style="width: 16px; height: 16px;"></i>
+            GitHub (MIT)
+          </a>
         </div>
       </div>
       <div class="footer-bottom">

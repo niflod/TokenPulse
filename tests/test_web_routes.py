@@ -27,6 +27,14 @@ async def test_root_serves_landing_page():
         assert "Observe seu consumo de IA" in content
         assert "Ver Demonstração ao Vivo" in content
         assert "/signup.html" in content
+        assert "TokenPulse — Monitore custos e uso de APIs de IA" in content
+        assert "og:image" in content
+        assert "twitter:card" in content
+        assert 'rel="canonical"' in content
+        assert 'id="faq"' in content
+        assert "schema.org" in content
+        assert "FAQPage" in content
+        assert "Organization" in content
 
 
 @pytest.mark.asyncio
@@ -60,3 +68,34 @@ async def test_auth_pages_and_api_ping():
         res_ping = await client.get("/api/ping")
         assert res_ping.status_code == 200
         assert res_ping.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_seo_crawler_assets():
+    """Valida a entrega correta de robots.txt, sitemap.xml e favicon.svg."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res_robots = await client.get("/robots.txt")
+        assert res_robots.status_code == 200
+        assert "User-agent: *" in res_robots.text
+        assert "Disallow: /dashboard" in res_robots.text
+        assert "Sitemap: https://tokenpulse.netlify.app/sitemap.xml" in res_robots.text
+
+        res_sitemap = await client.get("/sitemap.xml")
+        assert res_sitemap.status_code == 200
+        assert "https://tokenpulse.netlify.app/" in res_sitemap.text
+
+        res_fav = await client.get("/favicon.svg")
+        assert res_fav.status_code == 200
+        assert "<svg" in res_fav.text
+
+
+@pytest.mark.asyncio
+async def test_nonexistent_route_returns_404():
+    """Garante que rotas inexistentes retornem status HTTP 404 e a página 404 estilizada."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/rota-inexistente-xyz", headers={"Accept": "text/html"})
+        assert res.status_code == 404
+        assert "404" in res.text
+        assert "Página Não Encontrada" in res.text

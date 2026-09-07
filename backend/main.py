@@ -166,15 +166,14 @@ _STATIC_EXTENSIONS = (".html", ".css", ".js", ".ico", ".png", ".svg", ".woff", "
 async def jwt_auth_middleware(request, call_next):
     """Global JWT protection. Rejects unauthenticated requests to protected endpoints."""
     from starlette.responses import JSONResponse
-
     path = request.url.path
 
-    # Allow static files, web pages and public API paths
-    if path in ("/", "/dashboard", "/app") or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+    # Allow static files, web pages, robots.txt, sitemap and public routes
+    if not path.startswith("/api/"):
         return await call_next(request)
 
-    # Allow static file extensions (CSS, JS, images, fonts)
-    if any(path.endswith(ext) for ext in _STATIC_EXTENSIONS):
+    # Allow public API endpoints
+    if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
         return await call_next(request)
 
     # Check JWT token from Authorization header or disposable ticket for SSE
@@ -259,6 +258,18 @@ async def serve_dashboard():
     if dashboard_file.exists():
         return FileResponse(str(dashboard_file))
     return FileResponse(str(frontend_path / "index.html"))
+
+@app.exception_handler(404)
+async def custom_404_handler(request, exc):
+    from starlette.responses import FileResponse, JSONResponse
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        not_found_page = frontend_path / "404.html"
+        if not_found_page.exists():
+            return FileResponse(str(not_found_page), status_code=404)
+    detail = getattr(exc, "detail", "Not Found")
+    headers = getattr(exc, "headers", None)
+    return JSONResponse(status_code=404, content={"detail": detail}, headers=headers)
 
 if frontend_path.exists():
     app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
