@@ -45,21 +45,28 @@ def _ensure_data_dir() -> None:
 
 _ensure_data_dir()
 
-# Create async engine; echo only in debug mode
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    # SQLite-specific: allow usage across async tasks
-    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {},
-)
+is_sqlite = "sqlite" in settings.database_url
+
+engine_kwargs = {
+    "echo": settings.debug,
+}
+
+if is_sqlite:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # Resilient pool options for managed PostgreSQL (Neon / Supabase / Render)
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+
+engine = create_async_engine(settings.database_url, **engine_kwargs)
 
 # Configure SQLite pragmas for high concurrency and async safety
 from sqlalchemy import event
 
-
-@event.listens_for(engine.sync_engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    if "sqlite" in settings.database_url:
+if is_sqlite:
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=5000")

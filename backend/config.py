@@ -114,6 +114,19 @@ class Settings(BaseSettings):
                 )
         return self
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        """Normalizes postgres:// and postgresql:// to postgresql+asyncpg://."""
+        if not v or not isinstance(v, str):
+            return v
+        cleaned = v.strip()
+        if cleaned.startswith("postgres://"):
+            return "postgresql+asyncpg://" + cleaned[len("postgres://"):]
+        if cleaned.startswith("postgresql://") and not cleaned.startswith("postgresql+"):
+            return "postgresql+asyncpg://" + cleaned[len("postgresql://"):]
+        return cleaned
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):

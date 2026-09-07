@@ -78,7 +78,7 @@ O backend FastAPI pode ser implantado diretamente em qualquer serviço gerenciad
 - **Variáveis de Ambiente Recomendadas:**
   - `SECRET_KEY`: Chave aleatória forte para geração dos tokens JWT.
   - `ADMIN_API_KEY`: Chave mestra administrativa do sistema.
-  - `DATABASE_URL`: URL SQLite ou PostgreSQL gerenciado.
+  - `DATABASE_URL`: URL SQLite (`sqlite+aiosqlite:///...`) ou PostgreSQL gerenciado (Neon, Supabase, Render Postgres - strings `postgres://` ou `postgresql://` são normalizadas automaticamente para `postgresql+asyncpg://`).
 
 ---
 
