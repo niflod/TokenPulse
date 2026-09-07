@@ -128,13 +128,18 @@ app.add_middleware(
 async def add_security_headers(request, call_next):
     """Inject robust security headers and Content-Security-Policy on every response."""
     response = await call_next(request)
+    if is_production:
+        connect_src = "connect-src 'self' https://tknpulse.netlify.app https://tokenpulse.netlify.app https://tokenpulse-backend.onrender.com;"
+    else:
+        connect_src = "connect-src 'self' http://localhost:* http://127.0.0.1:* ws:;"
+
     csp = (
         "default-src 'self'; "
         "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self' http://localhost:* http://127.0.0.1:* ws:; "
+        f"{connect_src} "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
         "form-action 'self';"
@@ -180,6 +185,17 @@ async def jwt_auth_middleware(request, call_next):
 
     # Allow public API endpoints
     if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        if path == "/api/auth/setup":
+            from database import AsyncSessionLocal
+            from models import User
+            from sqlalchemy import select, func
+            async with AsyncSessionLocal() as db:
+                count = (await db.execute(select(func.count(User.id)))).scalar_one()
+                if count > 0:
+                    return JSONResponse(
+                        status_code=409,
+                        content={"detail": "Setup administrativo já concluído. Use /api/auth/login para autenticar."},
+                    )
         return await call_next(request)
 
     # Check JWT token from Authorization header or disposable ticket for SSE

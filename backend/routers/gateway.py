@@ -447,6 +447,7 @@ async def _proxy_request(
     auth_identity = client_ip
     tenant_id: Optional[str] = None
     resolved_user_id: Optional[int] = None
+    custom_rate_limit_rpm: Optional[int] = None
 
     if getattr(settings, "gateway_require_auth", True):
         if not client_auth or not client_auth.strip():
@@ -473,6 +474,8 @@ async def _proxy_request(
                     )
                 k_rec.last_used_at = datetime.now(timezone.utc)
                 await db.commit()
+                if k_rec.rate_limit_rpm and k_rec.rate_limit_rpm > 0:
+                    custom_rate_limit_rpm = k_rec.rate_limit_rpm
                 if k_rec.user_id:
                     resolved_user_id = k_rec.user_id
                     tenant_id = f"user_{k_rec.user_id}"
@@ -506,7 +509,7 @@ async def _proxy_request(
 
     # 3. Rate Limiting Check (RPM por Identidade Autenticada / IP + Provider)
     client_key = f"{auth_identity}:{clean_provider}"
-    allowed, retry_after = gateway_rate_limiter.is_allowed(client_key)
+    allowed, retry_after = gateway_rate_limiter.is_allowed(client_key, custom_rpm=custom_rate_limit_rpm)
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

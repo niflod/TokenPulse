@@ -16,19 +16,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import RequestLog
-from security import require_admin
+from models import RequestLog, User
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 
 async def generate_csv_stream(
     db: AsyncSession,
+    user_id: int,
     provider: Optional[str] = None,
     model: Optional[str] = None,
     limit: int = 5000,
 ) -> AsyncGenerator[str, None]:
-    """Generates CSV rows in chunks to prevent high memory consumption."""
+    """Generates CSV rows in chunks scoped strictly to the authenticated tenant."""
     output = io.StringIO()
     writer = csv.writer(output)
 
@@ -51,15 +52,19 @@ async def generate_csv_stream(
     output.seek(0)
     output.truncate(0)
 
-    # Query with stream
-    q = select(RequestLog).order_by(RequestLog.timestamp.desc()).limit(limit)
+    # Query with stream scoped by user_id
+    q = (
+        select(RequestLog)
+        .where(RequestLog.user_id == user_id)
+        .order_by(RequestLog.timestamp.desc())
+        .limit(limit)
+    )
     if provider:
         q = q.where(RequestLog.provider == provider.lower())
     if model:
         q = q.where(RequestLog.model == model)
 
     result = await db.stream_scalars(q)
-    batch = []
     async for r in result:
         writer.writerow([
             r.id,
@@ -84,31 +89,38 @@ async def generate_csv_stream(
         yield output.getvalue()
 
 
-@router.get("/csv", dependencies=[Depends(require_admin)])
+@router.get("/csv")
 async def export_csv(
     provider: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
     limit: int = Query(5000, ge=1, le=50000),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export request logs as streaming CSV."""
+    """Export request logs as streaming CSV isolated by tenant."""
     filename = f"tokenpulse_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
-        generate_csv_stream(db, provider=provider, model=model, limit=limit),
+        generate_csv_stream(db, user_id=current_user.id, provider=provider, model=model, limit=limit),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
-@router.get("/json", dependencies=[Depends(require_admin)])
+@router.get("/json")
 async def export_json(
     provider: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
     limit: int = Query(5000, ge=1, le=50000),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export request logs as JSON with upper boundary limit."""
-    q = select(RequestLog).order_by(RequestLog.timestamp.desc()).limit(limit)
+    """Export request logs as JSON scoped strictly to the authenticated tenant."""
+    q = (
+        select(RequestLog)
+        .where(RequestLog.user_id == current_user.id)
+        .order_by(RequestLog.timestamp.desc())
+        .limit(limit)
+    )
     if provider:
         q = q.where(RequestLog.provider == provider.lower())
     if model:

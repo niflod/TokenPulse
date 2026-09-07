@@ -55,12 +55,12 @@ def decode_access_token(token: str) -> dict:
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: str = Field(..., min_length=5, max_length=256, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class SetupRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class LoginRequest(BaseModel):
@@ -70,7 +70,7 @@ class LoginRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=72)
 
 
 # --- Endpoints ---
